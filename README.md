@@ -69,7 +69,7 @@ Before running the container, configure the environment:
 ### Option B: Docker Container Execution (Recommended)
 1. **Build the image**:
    ```bash
-   docker build -t abdullahsgit/amd-act2-router:latest .
+   docker build -t pandabutt/amd-act2-router:latest .
    ```
 2. **Run the container**:
    Mount local folders to `/input` and `/output` to pass task files and receive results:
@@ -80,7 +80,7 @@ Before running the container, configure the environment:
      -e FIREWORKS_API_KEY="your_api_key" `
      -e FIREWORKS_BASE_URL="https://api.fireworks.ai/inference/v1" `
      -e ALLOWED_MODELS="accounts/fireworks/models/llama-v3p1-70b-instruct" `
-     abdullahsgit/amd-act2-router:latest
+     pandabutt/amd-act2-router:latest
    ```
 
 ---
