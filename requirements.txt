@@ -3,3 +3,4 @@ sympy
 vaderSentiment
 spacy
 openai
+click

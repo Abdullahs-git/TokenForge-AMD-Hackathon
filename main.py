@@ -9,6 +9,13 @@ def main() -> None:
     fireworks_base_url = os.environ.get("FIREWORKS_BASE_URL", "")
     allowed_models = os.environ.get("ALLOWED_MODELS", "")
 
+    if not fireworks_api_key:
+        print("Warning: FIREWORKS_API_KEY is not set. Falling back to local-only mode.", file=sys.stderr)
+    if not fireworks_base_url:
+        print("Warning: FIREWORKS_BASE_URL is not set.", file=sys.stderr)
+    if not allowed_models:
+        print("Warning: ALLOWED_MODELS is not set.", file=sys.stderr)
+
     # Define paths (fallback to local directory if container paths do not exist)
     input_path = "/input/tasks.json" if os.path.exists("/input/tasks.json") else "input/tasks.json"
     output_path = "/output/results.json" if os.path.exists("/output") else "output/results.json"

@@ -1,24 +1,18 @@
 import requests
-from typing import Optional
 from openai import OpenAI
 
-def call_local_ollama(prompt: str) -> Optional[str]:
-    """Calls local Ollama instance running llama3.2:1b."""
+def call_local_ollama(prompt: str) -> str | None:
     url = "http://localhost:11434/api/generate"
-    payload = {
-        "model": "llama3.2:1b",
-        "prompt": prompt,
-        "stream": False
-    }
+    payload = {"model": "llama3.2:1b", "prompt": prompt, "stream": False}
     try:
-        response = requests.post(url, json=payload, timeout=15)
+        response = requests.post(url, json=payload, timeout=45)
         response.raise_for_status()
-        data = response.json()
-        return data.get("response")
-    except Exception:
+        return response.json().get("response", "").strip()
+    except requests.exceptions.RequestException as e:
+        print(f"Ollama Error: {e}")
         return None
 
-def call_fireworks(prompt: str, api_key: str, base_url: str, allowed_models: str) -> Optional[str]:
+def call_fireworks(prompt: str, api_key: str, base_url: str, allowed_models: str) -> str | None:
     """Calls Fireworks API via OpenAI client using the first model in allowed_models."""
     if not allowed_models:
         return None
@@ -34,5 +28,6 @@ def call_fireworks(prompt: str, api_key: str, base_url: str, allowed_models: str
             max_tokens=1024
         )
         return response.choices[0].message.content
-    except Exception:
+    except Exception as e:
+        print(f"Fireworks Error: {e}")
         return None
