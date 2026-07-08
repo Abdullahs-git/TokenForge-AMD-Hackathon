@@ -1,0 +1,5 @@
+requests
+sympy
+vaderSentiment
+spacy
+openai
