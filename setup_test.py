@@ -1,0 +1,56 @@
+import os
+import json
+
+def setup_test_data():
+    # Define tasks representation
+    tasks = [
+        {
+            "task_id": "math_001",
+            "prompt": "Solve equation: 2*x + 5 = 15"
+        },
+        {
+            "task_id": "math_002",
+            "prompt": "Solve: 3*y - 9 = 0"
+        },
+        {
+            "task_id": "ner_001",
+            "prompt": "Extract entities from: Google was founded in California by Larry Page and Sergey Brin."
+        },
+        {
+            "task_id": "sentiment_001",
+            "prompt": "What is the sentiment: I absolutely love the performance of AMD ROCm and Instinct GPU!"
+        },
+        {
+            "task_id": "sentiment_002",
+            "prompt": "The customer support wait times are extremely frustrating and unacceptable."
+        },
+        {
+            "task_id": "fact_001",
+            "prompt": "What is the boiling point of water at sea level?"
+        },
+        {
+            "task_id": "fact_002",
+            "prompt": "List the capital cities of Germany and France."
+        },
+        {
+            "task_id": "code_001",
+            "prompt": "Write a python function to compute fibonacci numbers with memoization and explain its time complexity."
+        },
+        {
+            "task_id": "logic_001",
+            "prompt": "If John is taller than Jane, and Jane is taller than Bob, who is taller: John or Bob? Explain the logic step-by-step."
+        }
+    ]
+
+    # Ensure input and output folders exist
+    os.makedirs("input", exist_ok=True)
+    os.makedirs("output", exist_ok=True)
+
+    input_file = os.path.join("input", "tasks.json")
+    with open(input_file, "w", encoding="utf-8") as f:
+        json.dump(tasks, f, indent=2)
+
+    print(f"Success: Created test dataset containing {len(tasks)} tasks at '{input_file}'")
+
+if __name__ == "__main__":
+    setup_test_data()
