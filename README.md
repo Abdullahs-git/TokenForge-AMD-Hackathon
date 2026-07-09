@@ -101,8 +101,8 @@ TokenForge employs a **3-Tier Cost Governor Pipeline**. Every incoming prompt fl
 Ensure Python 3.11+ is installed on your machine:
 
 ```bash
-git clone https://github.com/abdullahs-git/amd-act2-router.git
-cd amd-act2-router
+git clone https://github.com/Abdullahs-git/TokenForge-AMD-Hackathon.git
+cd TokenForge-AMD-Hackathon
 
 # Create virtual environment & install dependencies
 python -m venv venv
