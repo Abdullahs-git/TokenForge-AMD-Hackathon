@@ -63,7 +63,9 @@ class FireworksModelTierer:
 
         for m in models:
             m_lower = m.lower()
-            if any(k in m_lower for k in ["8b", "small", "mini", "mixtral", "gemma"]):
+            if "gemma" in m_lower:
+                cheap_model = m
+            elif any(k in m_lower for k in ["8b", "small", "mini", "mixtral"]):
                 if not cheap_model:
                     cheap_model = m
             elif any(k in m_lower for k in ["coder", "code", "qwen"]):

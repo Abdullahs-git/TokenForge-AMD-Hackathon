@@ -7,6 +7,7 @@
 [![Docker linux/amd64](https://img.shields.io/badge/Docker-linux%2Famd64-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![Fireworks AI](https://img.shields.io/badge/Fireworks_AI-Official_Proxy-FF6B6B?style=for-the-badge)](https://fireworks.ai/)
 [![Zero Token Local Solvers](https://img.shields.io/badge/Deterministic_Solvers-%240.00_Token_Cost-00C853?style=for-the-badge)](#tier-0-zero-token-deterministic-local-solvers-000-cost)
+[![Google Gemma Prize Eligible](https://img.shields.io/badge/Google_Gemma-Track_1_Bonus_Eligible-4285F4?style=for-the-badge&logo=google&logoColor=white)](#gemma-bonus-prize-eligibility)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
@@ -18,6 +19,14 @@
 Designed strictly around the official headless evaluation container specification, TokenForge maximizes the two judging dimensions:
 1. **Accuracy Gate:** Surpasses the LLM-Judge accuracy threshold across all **8 official capability categories** by combining deterministic symbolic algebra (`SymPy`), lexical sentiment intensity scoring (`VADER`), entity extraction (`spaCy`), and category-tailored prompt engineering.
 2. **Token Efficiency Leaderboard:** Achieves minimum possible token consumption through a **First-Line Deterministic Offloading Engine** ($0.00 tokens used toward judging score) and **Dynamic Cloud Model Tiering** paired with strict output `max_tokens` ceilings.
+
+---
+
+## 🏆 Gemma Bonus Prize Eligibility ($1,000 Track 1 Award)
+
+**TokenForge is 100% architected to compete for the Best Use of Google DeepMind Gemma Models via Fireworks AI ($1,000 Track 1 Bonus Prize):**
+- **Prioritized Gemma Tiering:** Our `FireworksModelTierer` engine automatically inspects the runtime `ALLOWED_MODELS` environment variable injected by the judging proxy and prioritizes open-weight **Google Gemma models** (`gemma`, `gemma2-9b-it`) as our primary cost-and-token-efficient cloud tier (`cheap`).
+- **Maximum Token & Cost Efficiency:** By routing routine summarization, entity classification, and NLP reasoning to Gemma via `FIREWORKS_BASE_URL`, TokenForge demonstrates the enterprise value of Google Gemma models as fast, highly accurate, lightweight workhorses.
 
 ---
 
