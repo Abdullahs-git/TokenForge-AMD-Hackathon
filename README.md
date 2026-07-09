@@ -1,14 +1,16 @@
-# TokenForge: Enterprise AI Cost Governor & Hybrid Token-Efficient Routing Agent
+<div align="center">
+  <img src="assets/no-bg-logo.png" alt="TokenForge Logo" width="260" />
+  <h1>TokenForge</h1>
+  <p><strong>Enterprise AI Cost Governor & Hybrid Token-Efficient Routing Agent</strong></p>
+  <p><em>AMD Developer Hackathon: ACT II — Track 1: General-Purpose AI Agent</em></p>
 
-**AMD Developer Hackathon: ACT II — Track 1: General-Purpose AI Agent**  
-**Submission Architecture: Headless Evaluation Container Engine (`linux/amd64`)**
-
-[![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Docker linux/amd64](https://img.shields.io/badge/Docker-linux%2Famd64-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
-[![Fireworks AI](https://img.shields.io/badge/Fireworks_AI-Official_Proxy-FF6B6B?style=for-the-badge)](https://fireworks.ai/)
-[![Zero Token Local Solvers](https://img.shields.io/badge/Deterministic_Solvers-%240.00_Token_Cost-00C853?style=for-the-badge)](#tier-0-zero-token-deterministic-local-solvers-000-cost)
-[![Google Gemma Prize Eligible](https://img.shields.io/badge/Google_Gemma-Track_1_Bonus_Eligible-4285F4?style=for-the-badge&logo=google&logoColor=white)](#gemma-bonus-prize-eligibility)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  [![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+  [![Docker linux/amd64](https://img.shields.io/badge/Docker-linux%2Famd64-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+  [![Fireworks AI](https://img.shields.io/badge/Fireworks_AI-Official_Proxy-FF6B6B?style=for-the-badge)](https://fireworks.ai/)
+  [![Zero Token Local Solvers](https://img.shields.io/badge/Deterministic_Solvers-%240.00_Token_Cost-00C853?style=for-the-badge)](#tier-0-zero-token-deterministic-local-solvers-000-cost)
+  [![Google Gemma Prize Eligible](https://img.shields.io/badge/Google_Gemma-Track_1_Bonus_Eligible-4285F4?style=for-the-badge&logo=google&logoColor=white)](#gemma-bonus-prize-eligibility)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+</div>
 
 ---
 
