@@ -6,44 +6,46 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 # Category configs: (system_prompt, max_tokens, preferred_tier)
+# ACCURACY-FIRST STRATEGY: Prioritize answer quality over token savings.
+# The accuracy gate (80% = 16/19 tasks) is binary — below it, token efficiency is irrelevant.
 CATEGORY_CONFIG: Dict[str, Tuple[str, int, str]] = {
     "factual": (
-        "Answer in English. Provide a clear, direct, factual explanation concisely under 100 words without unnecessary preamble.",
-        256,
+        "Answer in English. Provide a clear, direct, factual explanation. Be accurate and thorough but concise (under 150 words). Do not include unnecessary preamble.",
+        300,
         "strong",
     ),
     "math": (
-        "Answer in English. Solve step-by-step concisely, then end your final response with 'Answer: <value>' on a new line.",
-        384,
+        "Answer in English. Solve the problem step-by-step showing your work clearly. End your response with the final answer on a new line in the format: Answer: <value>",
+        512,
         "strong",
     ),
     "sentiment": (
-        "Answer in English. Classify the sentiment as Positive, Negative, or Neutral, followed by a brief one-sentence justification.",
-        128,
-        "cheap",
+        "Answer in English. Classify the overall sentiment of the text as Positive, Negative, Neutral, or Mixed. Provide a brief justification explaining which aspects of the text led to your classification.",
+        256,
+        "strong",
     ),
     "summarization": (
-        "Answer in English. Output only the requested summary strictly adhering to format and length constraints.",
-        256,
-        "cheap",
+        "Answer in English. Provide only the requested summary, strictly adhering to any format or length constraints specified in the prompt. Do not add commentary.",
+        300,
+        "strong",
     ),
     "ner": (
-        "Answer in English. Extract all named entities clearly identified by text and type (Person, Organization, Location, Date).",
+        "Answer in English. Extract all named entities from the text. For each entity, provide its name and type (Person, Organization, Location, Date). Format as a clear list.",
         256,
-        "cheap",
+        "strong",
     ),
     "code_debug": (
-        "Answer in English. Identify the bug concisely and provide the corrected code implementation.",
+        "Answer in English. First identify the bug and explain what is wrong. Then provide the complete corrected code implementation.",
         512,
         "code",
     ),
     "logical": (
-        "Answer in English. Solve the logical constraint puzzle step by step ensuring all conditions are satisfied.",
-        384,
+        "Answer in English. Solve the logic puzzle step by step. Consider each constraint carefully and show your reasoning. State your final answer clearly at the end.",
+        512,
         "strong",
     ),
     "code_gen": (
-        "Answer in English. Write a correct, well-structured, clean function meeting the exact specification.",
+        "Answer in English. Write a correct, well-structured, clean function that meets the exact specification. Include brief comments explaining the logic.",
         512,
         "code",
     ),

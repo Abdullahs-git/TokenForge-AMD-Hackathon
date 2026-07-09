@@ -87,16 +87,12 @@ def classify_and_route(prompt: str) -> str:
     category = detect_category(prompt)
 
     # 1. Tier 0: Deterministic Local Fast-Path ($0.00 Tokens)
+    #    ONLY pure arithmetic goes here — SymPy is 100% precise on clean expressions.
+    #    Sentiment & NER are routed to cloud for accuracy safety:
+    #      - VADER misclassifies mixed-sentiment reviews (e.g. "great battery, bad screen" → "Positive")
+    #      - spaCy en_core_web_sm mislabels entities (e.g. "Fireworks AI" → FAC instead of ORG)
     if category == "math":
         local_ans = local_solvers.solve_math(prompt)
-        if local_ans is not None:
-            return local_ans
-    elif category == "sentiment":
-        local_ans = local_solvers.analyze_sentiment(prompt)
-        if local_ans is not None:
-            return local_ans
-    elif category == "ner":
-        local_ans = local_solvers.extract_ner(prompt)
         if local_ans is not None:
             return local_ans
 
