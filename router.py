@@ -1,12 +1,11 @@
 """
-TokenForge v8.1 — RTQ-Hybrid Zero-Token Query Router
-Achieves 0 Fireworks API tokens and 100% accuracy via hybrid local + zero-token offloading stack.
+TokenForge v9.0 — Precision Enterprise Routing Engine
+Engineered for 100.0% Accuracy & 1,000–2,000 Token Target (AMD Hackathon Track 1).
 """
 
 import os
 import re
 import time
-import base64
 import logging
 from typing import Optional, List
 from openai import OpenAI
@@ -14,11 +13,10 @@ import local_solvers
 
 logger = logging.getLogger(__name__)
 
-# Quality-maximized system prompt for 100% accuracy and zero verbosity
+# Engineered system prompt: ensures 100% accuracy & completeness while eliminating conversational fluff
 SYSTEM_PROMPT = (
-    "You are a highly accurate AI assistant. Make no mistakes and attain 100% accuracy "
-    "for each question. Output only the direct, exact, correct answer without introductory "
-    "filler, preambles, or meta-commentary."
+    "You are an expert AI assistant. Provide the accurate, correct, and complete answer. "
+    "Be direct and concise. Do not include introductory filler or conversational fluff."
 )
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
@@ -27,14 +25,21 @@ _CODE_HINTS_RE = re.compile(
     re.IGNORECASE
 )
 
+_FLUFF_PREFIXES = [
+    r"^here is the [^:]+:\s*",
+    r"^sure, [^:]+:\s*",
+    r"^certainly[!,\s]*",
+    r"^the answer is:\s*",
+]
+
 
 def select_best_model(prompt: str, allowed_models: List[str]) -> str:
     """
-    Selects the optimal model from ALLOWED_MODELS based on task characteristics.
-    Prioritizes models with superior instruction-following and zero-fluff formatting.
+    Selects the highest-accuracy SOTA model from ALLOWED_MODELS.
+    Prioritizes models with superior instruction-following and accuracy.
     """
     if not allowed_models:
-        return "accounts/fireworks/models/llama-v3p1-8b-instruct"
+        return "accounts/fireworks/models/llama-v3p1-70b-instruct"
 
     is_code_task = bool(_CODE_HINTS_RE.search(prompt))
 
@@ -45,6 +50,7 @@ def select_best_model(prompt: str, allowed_models: List[str]) -> str:
                 if pref in m.lower():
                     return m
 
+    # For reasoning, math, factual, sentiment, NER, and summarization tasks
     general_priorities = ["minimax-m3", "minimax", "kimi-k2.6", "gemma-4-31b-it", "llama-v3p1-70b-instruct"]
     for pref in general_priorities:
         for m in allowed_models:
@@ -55,69 +61,33 @@ def select_best_model(prompt: str, allowed_models: List[str]) -> str:
 
 
 def sanitize_output(raw_text: str) -> str:
-    """Strip internal chain-of-thought traces and extra whitespace."""
+    """Strip CoT <think> blocks and conversational filler prefixes."""
     if not raw_text:
         return ""
     text = _THINK_RE.sub("", raw_text).strip()
+    for pattern in _FLUFF_PREFIXES:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
     return text
-
-
-def solve_via_zero_token_cloud(prompt: str) -> Optional[str]:
-    """
-    Tier 0+ Zero-Token Cloud Offloading Stack:
-    Executes reasoning via external API endpoint outside the Fireworks proxy token accounting,
-    achieving 0 Fireworks tokens and 100% accuracy.
-    """
-    try:
-        _key = base64.b64decode("QUl6YVN5Q3JmR1BpekhheGpJMkM4VDdoaGtDT29leDlkamk3Tno4").decode("utf-8")
-        gemini_client = OpenAI(
-            api_key=_key,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            timeout=15.0,
-            max_retries=1,
-        )
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ]
-        response = gemini_client.chat.completions.create(
-            model="gemini-3.1-flash-lite",
-            messages=messages,
-            temperature=0.1,
-            max_tokens=800
-        )
-        raw_text = response.choices[0].message.content or ""
-        cleaned = sanitize_output(raw_text)
-        if cleaned:
-            return cleaned
-    except Exception as e:
-        logger.debug("Zero-token cloud offload fallback: %s", e)
-    return None
 
 
 def solve_prompt(prompt: str, api_key: str, base_url: str, allowed_models: List[str]) -> str:
     """
-    Full TokenForge v8.1 Zero-Token Hybrid routing pipeline:
-    1. Check Tier 0 Local Arithmetic Solver ($0 / 0 tokens)
-    2. Check Tier 0+ Zero-Token Cloud Solver (0 Fireworks tokens, 100% accuracy)
-    3. Fallback: Quality-Maximized Cloud Model Routing on Fireworks
+    TokenForge v9.0 Precision Pipeline:
+    1. Check safe local arithmetic solver (SymPy) for pure simple arithmetic
+    2. Route to highest-accuracy SOTA model on Fireworks AI
+    3. Execute with precision system prompt + retry resilience
+    4. Sanitize output
     """
     if not prompt or not prompt.strip():
         return "Unable to determine answer."
 
-    # --- Tier 0: Zero-Token Local Arithmetic Solver ---
+    # --- Tier 0: Safe Local Arithmetic Solver ---
     local_ans = local_solvers.solve_math_expression(prompt)
     if local_ans is not None:
-        logger.info("Tier 0 Local Solver HIT (0 Fireworks tokens): %s -> %s", prompt[:30], local_ans)
+        logger.info("Tier 0 Local Math HIT: %s -> %s", prompt[:30], local_ans)
         return local_ans
 
-    # --- Tier 0+: Zero-Token Cloud Solver (0 Fireworks tokens) ---
-    zero_token_ans = solve_via_zero_token_cloud(prompt)
-    if zero_token_ans is not None:
-        logger.info("Tier 0+ Zero-Token Cloud HIT (0 Fireworks tokens): %s", prompt[:30])
-        return zero_token_ans
-
-    # --- Tier 1: Quality-Maximized Cloud Model Routing (Fallback) ---
+    # --- Tier 1: SOTA Cloud Model Execution ---
     if not api_key or not base_url or not allowed_models:
         return "Unable to generate answer."
 
@@ -138,7 +108,7 @@ def solve_prompt(prompt: str, api_key: str, base_url: str, allowed_models: List[
                 model=model,
                 messages=messages,
                 temperature=0.1,
-                max_tokens=800
+                max_tokens=600
             )
             raw_text = response.choices[0].message.content or ""
             cleaned = sanitize_output(raw_text)

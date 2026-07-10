@@ -39,7 +39,7 @@ def process_task(task: Dict[str, Any], api_key: str, base_url: str, allowed_mode
 
 def main() -> None:
     start_time = time.monotonic()
-    logger.info("TokenForge v8.0 (RTQ-Hybrid Architecture) starting...")
+    logger.info("TokenForge v9.0 (Precision Enterprise Architecture) starting...")
 
     # Load environment configuration
     api_key = os.environ.get("FIREWORKS_API_KEY", "")
