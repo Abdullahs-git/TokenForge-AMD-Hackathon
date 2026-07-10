@@ -1,198 +1,116 @@
 """
-Router v7.0 — Aggressive token-saving routing pipeline.
-
-Pipeline per task:
-1. Classify prompt into one of 8 categories (regex, 0 tokens)
-2. Try ALL applicable local solvers (0 tokens)
-3. Compress prompt (remove filler words)
-4. Route to Fireworks AI with ultra-tight token budgets
-5. Post-process: strip <think> blocks + sanitize output
-6. Validate: if blank → repair with tighter prompt
+TokenForge v8.0 — RTQ-Hybrid Query Router
+Dynamically routes queries to local zero-token solvers or quality-maximized cloud models.
 """
 
 import os
 import re
+import time
 import logging
-from typing import Optional
+from typing import Optional, List
+from openai import OpenAI
 import local_solvers
-import llm_clients
-import output_sanitizer
-import prompt_compressor
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# 8-category regex classifier
-# ---------------------------------------------------------------------------
+# Quality-maximized system prompt for 100% accuracy and zero verbosity
+SYSTEM_PROMPT = (
+    "You are a highly accurate AI assistant. Make no mistakes and attain 100% accuracy "
+    "for each question. Output only the direct, exact, correct answer without introductory "
+    "filler, preambles, or meta-commentary."
+)
 
-_CLASSIFIER_PATTERNS = {
-    "code_debug": [
-        r"\bbug\b", r"\bdebug\b", r"\bfix (this|the|my|it)\b",
-        r"what'?s wrong", r"why (does|is)n'?t (this|it|my)\b",
-        r"error in (this|the|my)\b", r"traceback", r"stack ?trace",
-        r"throws? an? (error|exception)", r"returns? \w+ instead",
-        r"infinite loop", r"corrected (version|code)",
-        r"has a bug",
-    ],
-    "code_gen": [
-        r"\b(write|create|implement|build|generate|produce|give me)\b.*\b(function|method|class|program|script|routine)\b",
-        r"\bfunction (that|to)\b", r"\bcode that\b",
-        r"\bwrite (a|an|some) code\b", r"\bimplement (a|an|the)\b",
-    ],
-    "sentiment": [
-        r"\bsentiment\b", r"positive or negative", r"positive, negative",
-        r"classify the (tone|emotion|sentiment|mood)",
-        r"(emotional )?tone of (this|the|that)",
-        r"\b(positive|negative|neutral)\b.*\breview\b",
-        r"how (positive|negative) ", r"is this (review|tweet|comment)\b",
-    ],
-    "ner": [
-        r"named entit", r"\bner\b",
-        r"extract (all )?(the )?(entit|name|person|people|organi|location|date)",
-        r"(list|identify|find|pull out) (all )?(the )?(people|persons?|organi[sz]ations?|locations?|dates?|entit)",
-        r"(person|organization|location|date)\s*[:=]",
-    ],
-    "summarization": [
-        r"summari[sz]e", r"\bsummary\b", r"\btl;?dr\b", r"\bcondense\b",
-        r"\bshorten\b", r"in (one|a single|two|three|\d+) (sentences?|words?|lines?)",
-        r"main (idea|point|takeaway)", r"\bthe gist\b", r"key points",
-        r"boil .* down",
-    ],
-    "logical": [
-        r"\bpuzzle\b", r"who (is|owns|sits|lives|has|drinks|likes)\b",
-        r"if and only if", r"exactly one", r"at least one",
-        r"the following (clues|facts|statements|conditions)",
-        r"each (person|friend|house|box|day|one|child|student|player) .*(different|exactly|only|one)",
-        r"\bdeduc(e|tive|tion)\b", r"logically (follows?|true)",
-        r"(definitely|necessarily) (true|follows)",
-        r"knights? and knaves", r"truth[- ]?teller", r"\bliar\b",
-        r"\bdoes not (own|have|like|live|sit|drink)\b",
-        r"\b(own|has|have) a different\b",
-        r"\b(three|four|five|six) (friends?|people|persons?|children|students|players?) .*(each|different|own)",
-    ],
-    "math": [
-        r"\bcalculate\b", r"\bcompute\b", r"how (much|many)\b", r"percent",
-        r"\d+\s*%", r"\bsum of\b", r"\baverage\b", r"solve for\b",
-        r"\d+\s*[+\-*/x×÷]\s*\d+", r"total (cost|price|amount|distance)",
-        r"\b(interest|discount|ratio|profit)\b",
-        r"find the (largest|smallest|value|angle|area|sum|total|average)",
-        r"what is \d",
-    ],
-    "factual": [
-        r"what (is|are|was|were)\b", r"who (is|was|were)\b",
-        r"when (did|was|is)\b", r"where (is|was|are)\b",
-        r"why (is|do|does|are)\b", r"how (do|does|can)\b",
-        r"\bexplain\b", r"\bdefine\b", r"\bdescribe\b", r"what does .* mean",
-    ],
-}
-
-_PRIORITY_ORDER = [
-    "code_debug", "code_gen", "sentiment", "ner",
-    "summarization", "logical", "math", "factual",
-]
-
-_COMPILED_PATTERNS = {
-    cat: [re.compile(p, re.IGNORECASE) for p in pats]
-    for cat, pats in _CLASSIFIER_PATTERNS.items()
-}
-
-_CODE_FENCE = re.compile(r"```")
-_CODE_HINT = re.compile(
-    r"\b(def |class |return |import |#include|public |void |printf|"
-    r"console\.log|System\.out)|=>|;\s*$",
-    re.MULTILINE,
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_CODE_HINTS_RE = re.compile(
+    r"\b(def |class |return |import |bug|fix|error|traceback|function|code|algorithm)\b|```",
+    re.IGNORECASE
 )
 
 
-def detect_category(prompt: str) -> str:
-    """Classifies a prompt into one of the 8 hackathon capability categories."""
-    text = prompt or ""
-    for cat in _PRIORITY_ORDER:
-        if any(rx.search(text) for rx in _COMPILED_PATTERNS[cat]):
-            return cat
-    return "code_debug" if (_CODE_FENCE.search(text) or _CODE_HINT.search(text)) else "factual"
-
-
-def classify_and_route(prompt: str) -> str:
+def select_best_model(prompt: str, allowed_models: List[str]) -> str:
     """
-    Full routing pipeline:
-    1. Classify → 2. Local solvers (0 tokens) → 3. Compress prompt →
-    4. Cloud call → 5. Sanitize → 6. Validate/Repair
+    Selects the optimal model from ALLOWED_MODELS based on task characteristics.
+    Prioritizes models with superior instruction-following and zero-fluff formatting.
     """
-    category = detect_category(prompt)
-    logger.info("Category: %s", category)
+    if not allowed_models:
+        return "accounts/fireworks/models/llama-v3p1-8b-instruct"
 
-    # --- Tier 0: Deterministic local solvers (0 tokens) ---
-    local_ans = _try_local_solvers(prompt, category)
+    is_code_task = bool(_CODE_HINTS_RE.search(prompt))
+
+    # Priority order for coding tasks
+    if is_code_task:
+        code_priorities = ["kimi-k2.7-code", "kimi-k2p7-code", "qwen2.5-coder", "minimax-m3", "gemma-4-31b-it"]
+        for pref in code_priorities:
+            for m in allowed_models:
+                if pref in m.lower():
+                    return m
+
+    # Priority order for general reasoning / factual / NLP tasks
+    general_priorities = ["minimax-m3", "minimax", "kimi-k2.6", "gemma-4-31b-it", "llama-v3p1-70b-instruct"]
+    for pref in general_priorities:
+        for m in allowed_models:
+            if pref in m.lower():
+                return m
+
+    return allowed_models[0]
+
+
+def sanitize_output(raw_text: str) -> str:
+    """Strip internal chain-of-thought traces and extra whitespace."""
+    if not raw_text:
+        return ""
+    text = _THINK_RE.sub("", raw_text).strip()
+    return text
+
+
+def solve_prompt(prompt: str, api_key: str, base_url: str, allowed_models: List[str]) -> str:
+    """
+    Full TokenForge v8.0 hybrid routing pipeline:
+    1. Check Tier 0 Local Solver ($0 tokens)
+    2. Select optimal cloud model from ALLOWED_MODELS
+    3. Execute API call with strict accuracy system prompt & retry resilience
+    4. Sanitize output
+    """
+    if not prompt or not prompt.strip():
+        return "Unable to determine answer."
+
+    # --- Tier 0: Zero-Token Local Arithmetic Solver ---
+    local_ans = local_solvers.solve_math_expression(prompt)
     if local_ans is not None:
-        logger.info("LOCAL solver handled [%s] (0 tokens)", category)
+        logger.info("Tier 0 Local Solver HIT (0 API tokens): %s -> %s", prompt[:30], local_ans)
         return local_ans
 
-    # --- Tier 1: Compress prompt → Cloud call ---
-    compressed = prompt_compressor.compress(prompt)
-    logger.info("Prompt compressed: %d → %d chars", len(prompt), len(compressed))
+    # --- Tier 1: Quality-Maximized Cloud Model Routing ---
+    if not api_key or not base_url or not allowed_models:
+        return "Unable to generate answer."
 
-    api_key = os.environ.get("FIREWORKS_API_KEY", "")
-    base_url = os.environ.get("FIREWORKS_BASE_URL", "")
-    allowed_models = os.environ.get("ALLOWED_MODELS", "")
+    model = select_best_model(prompt, allowed_models)
+    logger.info("Routing to model: %s", model)
 
-    raw_answer = llm_clients.call_fireworks_category(
-        compressed, category, api_key, base_url, allowed_models
-    )
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0, max_retries=1)
 
-    # --- Post-process: sanitize output ---
-    answer = output_sanitizer.extract_answer(raw_answer, category) if raw_answer else ""
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt}
+    ]
 
-    # --- Validate & repair if needed ---
-    if not output_sanitizer.validate_answer(answer):
-        logger.warning("Primary answer invalid for %s, attempting repair", category)
-        repair_prompt = output_sanitizer.get_repair_prompt(category, compressed)
-        repair_answer = llm_clients.call_repair(
-            compressed, repair_prompt, api_key, base_url, allowed_models
-        )
-        if repair_answer:
-            answer = output_sanitizer.extract_answer(repair_answer, category)
+    delay = 1.0
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=800
+            )
+            raw_text = response.choices[0].message.content or ""
+            cleaned = sanitize_output(raw_text)
+            if cleaned:
+                return cleaned
+        except Exception as e:
+            logger.warning("API attempt %d failed for model %s: %s", attempt + 1, model, e)
+            if attempt < 2:
+                time.sleep(delay)
+                delay *= 2
 
-    # --- Final fallback: never return blank ---
-    if not output_sanitizer.validate_answer(answer):
-        logger.error("All attempts failed for %s, using minimal fallback", category)
-        answer = _minimal_fallback(category, prompt)
-
-    return answer
-
-
-def _try_local_solvers(prompt: str, category: str) -> Optional[str]:
-    """Try all applicable local solvers in order. Returns answer or None."""
-
-    # Math — arithmetic, percentages
-    if category == "math":
-        ans = local_solvers.solve_math(prompt)
-        if ans is not None:
-            return ans
-
-    # Math — SymPy arithmetic evaluation ($0 tokens, 100% exact)
-    if category == "math":
-        ans = local_solvers.solve_math(prompt)
-        if ans is not None:
-            return ans
-
-    return None
-
-
-def _minimal_fallback(category: str, prompt: str) -> str:
-    """Generate a minimal non-blank answer when all else fails."""
-    if category == "sentiment":
-        return "Neutral."
-    elif category == "math":
-        return "Unable to compute."
-    elif category == "logical":
-        return "Unable to determine from given constraints."
-    elif category == "ner":
-        return "No named entities found."
-    elif category == "summarization":
-        words = prompt.split()[:20]
-        return " ".join(words)
-    elif category in ("code_debug", "code_gen"):
-        return "# Unable to generate code."
-    else:
-        return "Unable to determine answer."
+    return "Unable to generate answer."

@@ -1,11 +1,38 @@
 [
-  { "task_id": "practice-01", "prompt": "What is the capital of Australia, and what body of water is it near?" },
-  { "task_id": "practice-02", "prompt": "A store has 240 items. It sells 15% on Monday and 60 more on Tuesday. How many items remain?" },
-  { "task_id": "practice-03", "prompt": "Classify the sentiment of this review: The battery life is great, but the screen scratches too easily." },
-  { "task_id": "practice-04", "prompt": "Summarize the following in exactly one sentence: Artificial intelligence has made dramatic progress in natural language understanding and code generation over the last five years." },
-  { "task_id": "practice-05", "prompt": "Extract all named entities and their types from: Maria Sanchez joined Fireworks AI in Berlin last March." },
-  { "task_id": "practice-06", "prompt": "This function should return the max of a list but has a bug: def get_max(nums): return nums[0]. Find and fix it." },
-  { "task_id": "practice-07", "prompt": "Three friends, Sam, Jo, and Lee, each own a different pet: cat, dog, bird. Sam does not own the bird. Jo owns the dog. Who owns the cat?" },
-  { "task_id": "practice-08", "prompt": "Write a Python function that returns the second-largest number in a list, handling duplicates correctly." },
-  { "task_id": "practice-09-math-local", "prompt": "What is 144 / 12?" }
+  {
+    "task_id": "math_001",
+    "prompt": "Solve equation: 2*x + 5 = 15"
+  },
+  {
+    "task_id": "math_002",
+    "prompt": "Solve: 3*y - 9 = 0"
+  },
+  {
+    "task_id": "ner_001",
+    "prompt": "Extract entities from: Google was founded in California by Larry Page and Sergey Brin."
+  },
+  {
+    "task_id": "sentiment_001",
+    "prompt": "What is the sentiment: I absolutely love the performance of AMD ROCm and Instinct GPU!"
+  },
+  {
+    "task_id": "sentiment_002",
+    "prompt": "The customer support wait times are extremely frustrating and unacceptable."
+  },
+  {
+    "task_id": "fact_001",
+    "prompt": "What is the boiling point of water at sea level?"
+  },
+  {
+    "task_id": "fact_002",
+    "prompt": "List the capital cities of Germany and France."
+  },
+  {
+    "task_id": "code_001",
+    "prompt": "Write a python function to compute fibonacci numbers with memoization and explain its time complexity."
+  },
+  {
+    "task_id": "logic_001",
+    "prompt": "If John is taller than Jane, and Jane is taller than Bob, who is taller: John or Bob? Explain the logic step-by-step."
+  }
 ]
