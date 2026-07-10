@@ -65,7 +65,18 @@ def get_fallback_chain(category: str, allowed_models_str: str) -> List[str]:
     """
     Returns the exact ALLOWED_MODELS entries sorted in category-optimal accuracy fallback order.
     """
-    models = [m.strip() for m in allowed_models_str.split(",") if m.strip()]
+    import json
+    raw = (allowed_models_str or "").strip()
+    models = []
+    if raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+            models = [str(m).strip() for m in parsed if str(m).strip()]
+        except Exception:
+            pass
+    if not models:
+        models = [m.strip() for m in raw.split(",") if m.strip()]
+
     if not models:
         return []
 
@@ -123,7 +134,12 @@ def call_fireworks_category(
         ("Answer accurately and concisely.", 128)
     )
 
-    user_content = f"{instruction}\n\nTask: {prompt}"
+    # Clean redundant spaces and tabs to minimize input tokens
+    lines = [line.strip() for line in prompt.splitlines()]
+    prompt_clean = "\n".join(lines).strip()
+    prompt_clean = re.sub(r'[ \t]+', ' ', prompt_clean)
+
+    user_content = f"{instruction}\n\nTask: {prompt_clean}"
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=25.0, max_retries=3)
 
     for model in fallback_chain:
@@ -152,8 +168,13 @@ def call_repair(
         return None
     strong = fallback_chain[0]
 
+    # Clean redundant spaces and tabs to minimize input tokens
+    lines = [line.strip() for line in prompt.splitlines()]
+    prompt_clean = "\n".join(lines).strip()
+    prompt_clean = re.sub(r'[ \t]+', ' ', prompt_clean)
+
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=25.0, max_retries=2)
-    return _call_model(client, strong, f"{repair_instruction}\n\nTask: {prompt}", SYSTEM_PROMPT, max_tokens=256)
+    return _call_model(client, strong, f"{repair_instruction}\n\nTask: {prompt_clean}", SYSTEM_PROMPT, max_tokens=256)
 
 
 def _call_model(
