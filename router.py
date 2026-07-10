@@ -42,7 +42,7 @@ _CLASSIFIER_PATTERNS = {
         r"if and only if", r"exactly one", r"at least one",
         r"the following (clues|facts|statements|conditions)",
         r"each (person|friend|house|box|day|one|child|student|player) .*(different|exactly|only|one)",
-        r"\bdeduce\b", r"logically (follows?|true)",
+        r"\bdeduc(e|tive|tion)\b", r"logically (follows?|true)",
         r"(definitely|necessarily) (true|follows)",
         r"knights? and knaves", r"truth[- ]?teller", r"\bliar\b",
         r"\bdoes not (own|have|like|live|sit|drink)\b",
@@ -52,7 +52,7 @@ _CLASSIFIER_PATTERNS = {
     "math": [
         r"\bcalculate\b", r"\bcompute\b", r"how (much|many)\b", r"percent",
         r"\d+\s*%", r"\bsum of\b", r"\baverage\b", r"solve for\b",
-        r"\d+\s*[+\-*/x×÷]\s*\d+", r"total (cost|price|amount)",
+        r"\d+\s*[+\-*/x×÷]\s*\d+", r"total (cost|price|amount|distance)",
         r"\b(interest|discount|ratio|profit)\b",
         r"find the (largest|smallest|value|angle|area|sum|total|average)",
         r"what is \d",
@@ -75,13 +75,21 @@ _COMPILED_PATTERNS = {
     for cat, pats in _CLASSIFIER_PATTERNS.items()
 }
 
+_CODE_FENCE = re.compile(r"```")
+_CODE_HINT = re.compile(
+    r"\b(def |class |return |import |#include|public |void |printf|"
+    r"console\.log|System\.out)|=>|;\s*$",
+    re.MULTILINE,
+)
+
 def detect_category(prompt: str) -> str:
     """Classifies a prompt into one of the 8 hackathon capability categories."""
     text = prompt or ""
     for cat in _PRIORITY_ORDER:
         if any(rx.search(text) for rx in _COMPILED_PATTERNS[cat]):
             return cat
-    return "factual"
+    # Raw code snippet in prompt with no other signals -> code_debug
+    return "code_debug" if (_CODE_FENCE.search(text) or _CODE_HINT.search(text)) else "factual"
 
 def classify_and_route(prompt: str) -> str:
     """
@@ -90,10 +98,7 @@ def classify_and_route(prompt: str) -> str:
     category = detect_category(prompt)
 
     # 1. Tier 0: Deterministic Local Fast-Path ($0.00 Tokens)
-    #    ONLY pure arithmetic goes here — SymPy is 100% precise on clean expressions.
-    #    Sentiment & NER are routed to cloud for accuracy safety:
-    #      - VADER misclassifies mixed-sentiment reviews (e.g. "great battery, bad screen" → "Positive")
-    #      - spaCy en_core_web_sm mislabels entities (e.g. "Fireworks AI" → FAC instead of ORG)
+    #    ONLY pure simple arithmetic goes here.
     if category == "math":
         local_ans = local_solvers.solve_math(prompt)
         if local_ans is not None:
@@ -110,3 +115,4 @@ def classify_and_route(prompt: str) -> str:
 
     # 3. Graceful Fallback if API key is unconfigured during local test
     return f"[Local Offline Mode] Category detected: {category}. Prompt received: {prompt}"
+
