@@ -9,3 +9,5 @@ venv/
 pip-log.txt
 pip-delete-this-directory.txt
 output/
+amd-hackathon-agent-main/
+amd-hackhathon-main/
