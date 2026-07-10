@@ -1,2 +1,2 @@
-openai
-sympy
+openai>=1.12.0
+sympy>=1.12

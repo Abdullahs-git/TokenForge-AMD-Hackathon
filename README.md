@@ -1,50 +1,81 @@
 <div align="center">
   <img src="assets/no-bg-logo.png" alt="TokenForge Logo" width="260" />
-  <h1>TokenForge v9.0 — Precision Enterprise Architecture</h1>
-  <p><strong>100% Accuracy Guaranteed & Ultra-Lean Token Footprint (~1,285 Tokens)</strong></p>
-  <p><em>AMD Developer Hackathon: ACT II — Track 1: General-Purpose AI Agent</em></p>
+  <h1>TokenForge — Hybrid Token-Efficient Routing Agent</h1>
+  <p><strong>AMD Developer Hackathon ACT II — Track 1</strong></p>
 
   [![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-  [![Docker linux/amd64](https://img.shields.io/badge/Docker-pandabutt%2Famd--act2--router%3Alatest-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/pandabutt/amd-act2-router)
-  [![Accuracy Target](https://img.shields.io/badge/Accuracy_Target-100.0%25-00C853?style=for-the-badge)](#benchmark--token-projection-scorecard)
-  [![Token Target](https://img.shields.io/badge/19--Task_Tokens-~1%2C285_Tokens-2196F3?style=for-the-badge)](#benchmark--token-projection-scorecard)
-  [![CI/CD](https://github.com/Abdullahs-git/TokenForge-AMD-Hackathon/actions/workflows/ci.yml/badge.svg)](https://github.com/Abdullahs-git/TokenForge-AMD-Hackathon/actions/workflows/ci.yml)
+  [![Docker linux/amd64](https://img.shields.io/badge/Docker-linux%2Famd64-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 </div>
 
 ---
 
-## 🚀 Executive Overview: TokenForge v9.0
+## 🚀 Architectural Overview
 
-Engineered from 25+ years of Senior AI/ML Systems Architecture experience, **TokenForge v9.0** eliminates fragile zero-token hacks and lossy prompt compressions that cause accuracy gate failures. Instead, it achieves **100% Accuracy** while keeping total consumption across all 19 evaluation tasks at **~1,285 tokens** (well within the winning 1,000–2,000 range).
+TokenForge is a task-aware hybrid routing agent designed to minimize token consumption while maintaining strict accuracy across varied evaluation benchmarks.
 
-### Core Architectural Pillars:
-1. **Precision SOTA Model Selection:** Dynamically parses `ALLOWED_MODELS` to route code tasks to top coding models (`kimi-k2.7-code`, `qwen2.5-coder`) and general reasoning to top instruction-following models (`minimax-m3`, `gemma-4-31b-it`, `llama-v3p1-70b-instruct`).
-2. **Completeness + Zero-Fluff Prompting:** Uses our precision system prompt:
-   ```text
-   "You are an expert AI assistant. Provide the accurate, correct, and complete answer. Be direct and concise. Do not include introductory filler or conversational fluff."
-   ```
-   This ensures complete code blocks and complete reasoning answers (clearing 100% accuracy gates) without wasting tokens on conversation preambles.
-3. **Safe Non-Truncating Ceilings (`max_tokens=600`):** Prevents any partial code syntax or incomplete logical deductions.
-4. **Automated CoT & Fluff Sanitization:** Automatically strips `<think>...</think>` internal reasoning traces and conversational prefixes.
+### Core Architecture
 
----
+1. **Tier 0 Fail-Closed Deterministic Solvers (`local_solvers.py`):**
+   - Pure numerical arithmetic expressions are solved locally via zero-token deterministic evaluation (`SymPy`).
+   - Unambiguous deterministic operations execute locally at zero API cost.
+   - Strict fail-closed discipline: returns `None` on any ambiguity or potential edge case to ensure zero false-positive local guesses.
 
-## 📊 Benchmark & Token Projection Scorecard
+2. **Task Classification (`router.classify_task`):**
+   - Automatically categorizes incoming prompts into `code`, `classification`, `short_fact`, and `general` reasoning.
+   - Assigns tailored, strict format system prompts per task category to prevent verbose preambles or post-completion conversational fluff.
 
-```
-=== OFFICIAL 19-TASK HACKATHON LEADERBOARD PROJECTION ===
-Average Tokens / Task:               ~67.7 tokens
-Projected Total Tokens (19 Tasks):   ~1,285 tokens
-Target Range (1000 - 2000 tokens):   [ACHIEVED]
-Accuracy Guarantee:                  100.0% via SOTA Precision Prompting
-=========================================================
-```
+3. **Dynamic Generic Model Scoring (`router.select_best_model`):**
+   - Parses parameter sizes and capability tags (`coder`, `instruct`, `chat`) directly from the runtime `ALLOWED_MODELS` environment variable.
+   - Ranks models dynamically without relying on brittle hardcoded model name strings.
+
+4. **Adaptive Token Ceilings & Sanitization (`router.sanitize_output`):**
+   - Applies strict category-specific `max_tokens` ceilings (`64` for classification, `80` for short facts, `600` for code).
+   - Automatically strips chain-of-thought `<think>...</think>` tags and conversational prefixes/suffixes.
 
 ---
 
-## 🐳 Docker Submission Image
+## 📦 Container Contract & Evaluation Schema
 
+The container strictly adheres to the AMD evaluation pipeline specifications:
+- **Platform:** Explicitly built for `linux/amd64`.
+- **Input:** Reads `/input/tasks.json` containing task objects (`task_id` / `id` and `prompt` / `question`).
+- **Output:** Writes schema-compliant records to `/output/results.json`:
+  ```json
+  [
+    {
+      "task_id": "example_01",
+      "id": "example_01",
+      "answer": "Direct answer text"
+    }
+  ]
+  ```
+
+---
+
+## 🛠️ Local Verification & Testing
+
+### Run Automated Sanity Suite
 ```bash
-docker pull pandabutt/amd-act2-router:latest
+python test_pipeline.py
+```
+
+### Run Benchmark Evaluator
+```bash
+python benchmark_evaluator.py
+```
+
+### Build & Verify Docker Container (`linux/amd64`)
+```bash
+docker buildx build --platform linux/amd64 -t tokenforge:latest .
+
+mkdir -p input output
+echo '[{"task_id":"t1","prompt":"What is 144 / 12?"}]' > input/tasks.json
+
+docker run --rm --platform linux/amd64 \
+  -v $(pwd)/input:/input -v $(pwd)/output:/output \
+  -e ALLOWED_MODELS="accounts/fireworks/models/llama-v3p1-70b-instruct" \
+  tokenforge:latest
+
+cat output/results.json
 ```

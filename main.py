@@ -1,5 +1,5 @@
 """
-TokenForge v8.0 — Main Entry Point
+TokenForge — Main Entry Point
 Enterprise AI Cost Governor & Hybrid Token-Efficient Routing Agent
 Built for AMD Developer Hackathon: ACT II — Track 1
 """
@@ -18,13 +18,13 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
     datefmt="%H:%M:%S",
 )
-logger = logging.getLogger("tokenforge")
+logger = logging.getLogger("tokenforge.main")
 
 
 def process_task(task: Dict[str, Any], api_key: str, base_url: str, allowed_models: List[str]) -> Dict[str, str]:
-    """Process a single evaluation task through the TokenForge v8.0 pipeline."""
+    """Process a single evaluation task through the hybrid TokenForge pipeline."""
     task_id = str(task.get("task_id") or task.get("id") or "unknown").strip()
-    prompt = str(task.get("prompt") or task.get("question") or "").strip()
+    prompt = str(task.get("prompt") or task.get("question") or task.get("instruction") or "").strip()
 
     try:
         answer = router.solve_prompt(prompt, api_key, base_url, allowed_models)
@@ -34,12 +34,16 @@ def process_task(task: Dict[str, Any], api_key: str, base_url: str, allowed_mode
         logger.error("Error processing task %s: %s", task_id, e)
         answer = "Unable to determine answer."
 
-    return {"task_id": task_id, "answer": answer.strip()}
+    return {
+        "task_id": task_id,
+        "id": task_id,
+        "answer": answer.strip(),
+    }
 
 
 def main() -> None:
     start_time = time.monotonic()
-    logger.info("TokenForge v9.0 (Precision Enterprise Architecture) starting...")
+    logger.info("TokenForge starting evaluation pipeline...")
 
     # Load environment configuration
     api_key = os.environ.get("FIREWORKS_API_KEY", "")
@@ -47,7 +51,7 @@ def main() -> None:
     allowed_models_str = os.environ.get("ALLOWED_MODELS", "")
     allowed_models = [m.strip() for m in allowed_models_str.split(",") if m.strip()]
 
-    # Paths (Evaluation container standard vs local development)
+    # Paths (container standard /input/tasks.json vs local development)
     input_path = "/input/tasks.json" if os.path.exists("/input/tasks.json") else "input/tasks.json"
     output_path = "/output/results.json" if os.path.exists("/output") else "output/results.json"
 
@@ -61,6 +65,13 @@ def main() -> None:
     except Exception as e:
         logger.error("Failed to read input JSON %s: %s", input_path, e)
         sys.exit(1)
+
+    # Unwrap dict containers e.g. {"tasks": [...]} or {"results": [...]}
+    if isinstance(tasks, dict):
+        for key in ("tasks", "data", "results", "items"):
+            if key in tasks and isinstance(tasks[key], list):
+                tasks = tasks[key]
+                break
 
     if not isinstance(tasks, list):
         logger.error("Input JSON must contain a list of task objects.")
@@ -89,7 +100,12 @@ def main() -> None:
             os.makedirs(out_dir, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
-        logger.info("Saved %d results to %s in %.2fs", len(results), output_path, time.monotonic() - start_time)
+        logger.info(
+            "Saved %d results to %s in %.2fs",
+            len(results),
+            output_path,
+            time.monotonic() - start_time,
+        )
     except Exception as e:
         logger.error("Failed to save results JSON: %s", e)
         sys.exit(1)
