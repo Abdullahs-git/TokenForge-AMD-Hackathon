@@ -49,97 +49,20 @@ _MULTI_NEWLINE = re.compile(r"\n{3,}")
 
 
 def strip_formatting(text: str) -> str:
-    """Remove all markdown and HTML formatting from LLM output."""
-    result = text
-    for pattern, replacement in _STRIP_PATTERNS:
-        result = pattern.sub(replacement, result)
-    result = _MULTI_SPACE.sub(" ", result)
-    result = _MULTI_NEWLINE.sub("\n\n", result)
-    return result.strip()
-
-
-# ---------------------------------------------------------------------------
-# Answer extraction per category
-# ---------------------------------------------------------------------------
-
-# Math/Logic: extract "Answer: <value>" from the end of the response
-_ANSWER_LINE = re.compile(
-    r"(?:^|\n)\s*(?:Answer|ANSWER|Final Answer|final_answer|Result)\s*[:=]\s*(.+?)$",
-    re.MULTILINE | re.IGNORECASE,
-)
-
-# JSON extraction for structured reasoning (optional)
-_JSON_BLOCK = re.compile(r"\{[^{}]*\"final_answer\"\s*:\s*\"([^\"]+)\"[^{}]*\}", re.IGNORECASE)
-
-# Sentiment normalization
-_SENTIMENT_MAP = {
-    "positive": "Positive",
-    "negative": "Negative",
-    "neutral": "Neutral",
-    "mixed": "Mixed",
-}
-_SENTIMENT_PAT = re.compile(
-    r"\b(positive|negative|neutral|mixed)\b", re.IGNORECASE
-)
+    """Clean trailing whitespace without mutating markdown or structure."""
+    if not text:
+        return ""
+    return text.strip()
 
 
 def extract_answer(raw: str, category: str) -> str:
     """
-    Post-process raw LLM output based on category.
-    Returns a cleaned answer string ready for results.json.
+    Returns the cleaned raw LLM output ready for results.json.
+    Preserves all lists, code blocks, and markdown structure for the LLM-Judge.
     """
     if not raw or not raw.strip():
         return ""
-
-    text = raw.strip()
-
-    if category in ("math", "logical"):
-        return _extract_math_logic(text)
-    elif category == "sentiment":
-        return _extract_sentiment(text)
-    elif category == "ner":
-        return _extract_ner(text)
-    elif category in ("code_debug", "code_gen"):
-        return _extract_code(text)
-    elif category == "summarization":
-        return strip_formatting(text)
-    elif category == "factual":
-        return strip_formatting(text)
-    else:
-        return strip_formatting(text)
-
-
-def _extract_math_logic(text: str) -> str:
-    """
-    For math and logic: keep the full reasoning but ensure it's clean.
-    The judge needs to see the reasoning steps AND the final answer.
-    """
-    cleaned = strip_formatting(text)
-    return cleaned
-
-
-def _extract_sentiment(text: str) -> str:
-    """Normalize sentiment output to consistent format."""
-    cleaned = strip_formatting(text)
-    return cleaned
-
-
-def _extract_ner(text: str) -> str:
-    """Normalize NER output format."""
-    cleaned = strip_formatting(text)
-    return cleaned
-
-
-def _extract_code(text: str) -> str:
-    """
-    For code tasks: preserve code blocks but strip outer markdown.
-    Keep code fences for code_debug and code_gen since the judge expects them.
-    """
-    # For code output, we want to keep the fenced code blocks intact
-    # but strip any OTHER markdown formatting around them
-    text = re.sub(r"\*{1,3}(.*?)\*{1,3}", r"\1", text)
-    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
-    return text.strip()
+    return raw.strip()
 
 
 # ---------------------------------------------------------------------------

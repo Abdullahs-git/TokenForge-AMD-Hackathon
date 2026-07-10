@@ -12,61 +12,51 @@ logger = logging.getLogger(__name__)
 
 CATEGORY_CONFIG: Dict[str, Tuple[str, int, str]] = {
     "factual": (
-        "You are a factual knowledge expert. Give a clear, direct, accurate answer. "
-        "No markdown formatting. No bold, no headers, no bullet points. "
-        "Be thorough but concise (under 150 words).",
-        300,
+        "You are an expert knowledge assistant. Answer the question accurately, clearly, and thoroughly. "
+        "Provide direct facts and crisp explanations.",
+        512,
         "strong",
     ),
     "math": (
-        "You are a precise mathematical solver. Solve the problem step-by-step. "
-        "Show your work clearly. End your response with the final answer on its own line "
-        "in the format: Answer: <value>. No markdown formatting.",
-        450,
+        "You are an expert mathematical solver. Work through the problem step-by-step showing your reasoning clearly. "
+        "At the end of your response, state your final numerical or algebraic answer on a new line.",
+        768,
         "strong",
     ),
     "sentiment": (
-        "You are a sentiment analyst. Classify the overall sentiment of the given text as exactly one of: "
-        "Positive, Negative, Neutral, or Mixed. Then provide a brief one-sentence justification. "
-        "No markdown formatting.",
-        150,
+        "You are an expert sentiment analyst. Classify the overall sentiment of the text as Positive, Negative, Neutral, or Mixed. "
+        "Provide a clear, brief justification explaining what specific aspects led to that classification.",
+        384,
         "strong",
     ),
     "summarization": (
-        "You are a professional summarizer. Output ONLY the requested summary. "
-        "Strictly obey any format or length constraints specified. "
-        "No commentary, no preamble, no markdown formatting.",
-        250,
+        "You are an expert text summarizer. Provide a concise, accurate summary that captures the main ideas. "
+        "Strictly adhere to any explicit format or length constraints requested in the prompt.",
+        512,
         "strong",
     ),
     "ner": (
-        "You are a named entity extraction specialist. Extract ALL named entities from the text. "
-        "For each entity, output it as 'TYPE: name' on its own line. "
-        "Valid types: PERSON, ORGANIZATION, LOCATION, DATE. "
-        "If an entity could be multiple types, choose the most specific. "
-        "No markdown formatting.",
-        260,
+        "You are an expert named entity recognition specialist. Extract all named entities from the text. "
+        "Clearly identify each entity and label its type (e.g., PERSON, ORGANIZATION, LOCATION, DATE).",
+        512,
         "strong",
     ),
     "code_debug": (
-        "You are an expert code debugger. First, state the bug in one clear sentence. "
-        "Then provide the complete corrected code. "
-        "Do not use markdown bold or headers. You may use a code fence for the code block.",
-        520,
+        "You are an expert software engineer and code debugger. First explain the bug clearly. "
+        "Then provide the corrected, working code implementation inside a code block.",
+        1024,
         "code",
     ),
     "logical": (
-        "You are a logic puzzle solver. Work through each constraint carefully in numbered steps. "
-        "Check every condition. State your final answer clearly at the end on its own line "
-        "in the format: Answer: <value>. No markdown formatting.",
-        450,
+        "You are an expert logical reasoning solver. Solve the puzzle step-by-step, verifying every condition and constraint carefully. "
+        "State your final deduced answer clearly at the end.",
+        768,
         "strong",
     ),
     "code_gen": (
-        "You are an expert code generator. Write correct, self-contained, well-structured code "
-        "that meets the exact specification. Include brief inline comments. "
-        "Output only the code. You may use a code fence.",
-        520,
+        "You are an expert software engineer. Write clean, correct, well-structured code meeting the exact prompt specification. "
+        "Include concise comments explaining the logic.",
+        1024,
         "code",
     ),
 }
@@ -216,13 +206,10 @@ def call_fireworks_category(
     if not fallback_chain:
         return None
 
-    # Compress the prompt to save input tokens
-    compressed = _compress_prompt(prompt)
-
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0, max_retries=3)
 
     for model in fallback_chain:
-        text = _call_model(client, model, compressed, system_prompt, max_tokens)
+        text = _call_model(client, model, prompt, system_prompt, max_tokens)
         if text:
             return text
 
@@ -252,7 +239,7 @@ def call_repair(
     return _call_model(
         client, strong, prompt,
         repair_instruction,
-        max_tokens=400,
+        max_tokens=600,
     )
 
 
@@ -263,13 +250,7 @@ def _call_model(
     system: str,
     max_tokens: int,
 ) -> Optional[str]:
-    """Make one API call with reasoning_effort support and graceful fallback."""
-    global _no_effort_param
-
-    kwargs = {}
-    if model not in _no_effort_param:
-        kwargs["reasoning_effort"] = "none"
-
+    """Make one API call across fallback chain."""
     try:
         response = client.chat.completions.create(
             model=model,
@@ -277,30 +258,12 @@ def _call_model(
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.0,
+            temperature=0.1,
             max_tokens=max_tokens,
-            **kwargs,
         )
     except Exception as e:
-        # If reasoning_effort is not supported, retry without it
-        if kwargs and "invalid_request_error" in str(e).lower():
-            _no_effort_param.add(model)
-            try:
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt},
-                    ],
-                    temperature=0.0,
-                    max_tokens=max_tokens,
-                )
-            except Exception as e2:
-                logger.error("Fireworks API call failed for model %s (no-effort retry): %s", model, e2)
-                return None
-        else:
-            logger.error("Fireworks API call failed for model %s: %s", model, e)
-            return None
+        logger.error("Fireworks API call failed for model %s: %s", model, e)
+        return None
 
     try:
         content = response.choices[0].message.content
