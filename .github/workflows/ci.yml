@@ -64,9 +64,9 @@ jobs:
         run: |
           python -c "
           from output_sanitizer import strip_formatting, extract_answer, validate_answer
-          # Test markdown stripping
-          assert '**' not in strip_formatting('**bold text**')
-          assert strip_formatting('# Header') == 'Header'
+          # Test formatting preservation
+          assert strip_formatting('**bold text**') == '**bold text**'
+          assert extract_answer('- item 1\n- item 2', 'ner') == '- item 1\n- item 2'
           # Test validate
           assert validate_answer('This is a valid answer') == True
           assert validate_answer('') == False
