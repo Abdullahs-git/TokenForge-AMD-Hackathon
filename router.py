@@ -1,12 +1,13 @@
 """
-Router v3.0 — Category classifier + routing pipeline with output sanitization and repair loop.
+Router v7.0 — Aggressive token-saving routing pipeline.
 
 Pipeline per task:
-1. Classify prompt into one of 8 hackathon categories
-2. Try deterministic local solver (simple arithmetic only)
-3. Route to Fireworks AI cloud with category-specific config
-4. Post-process: sanitize output (strip markdown/HTML)
-5. Validate: if answer is blank/invalid → repair with tighter prompt
+1. Classify prompt into one of 8 categories (regex, 0 tokens)
+2. Try ALL applicable local solvers (0 tokens)
+3. Compress prompt (remove filler words)
+4. Route to Fireworks AI with ultra-tight token budgets
+5. Post-process: strip <think> blocks + sanitize output
+6. Validate: if blank → repair with tighter prompt
 """
 
 import os
@@ -16,11 +17,12 @@ from typing import Optional
 import local_solvers
 import llm_clients
 import output_sanitizer
+import prompt_compressor
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# 8-category regex classifier (comprehensive pattern matching)
+# 8-category regex classifier
 # ---------------------------------------------------------------------------
 
 _CLASSIFIER_PATTERNS = {
@@ -108,74 +110,113 @@ def detect_category(prompt: str) -> str:
     for cat in _PRIORITY_ORDER:
         if any(rx.search(text) for rx in _COMPILED_PATTERNS[cat]):
             return cat
-    # Raw code snippet in prompt with no other signals → code_debug
     return "code_debug" if (_CODE_FENCE.search(text) or _CODE_HINT.search(text)) else "factual"
 
 
 def classify_and_route(prompt: str) -> str:
     """
     Full routing pipeline:
-    1. Classify → 2. Local solver (math only) → 3. Cloud call → 4. Sanitize → 5. Validate/Repair
+    1. Classify → 2. Local solvers (0 tokens) → 3. Compress prompt →
+    4. Cloud call → 5. Sanitize → 6. Validate/Repair
     """
     category = detect_category(prompt)
-    logger.info("Category detected: %s", category)
+    logger.info("Category: %s", category)
 
-    # --- Tier 0: Deterministic local solver (pure arithmetic only, $0 tokens) ---
-    if category == "math":
-        local_ans = local_solvers.solve_math(prompt)
-        if local_ans is not None:
-            logger.info("Tier 0 local solver answered math prompt")
-            return local_ans
+    # --- Tier 0: Deterministic local solvers (0 tokens) ---
+    local_ans = _try_local_solvers(prompt, category)
+    if local_ans is not None:
+        logger.info("LOCAL solver handled [%s] (0 tokens)", category)
+        return local_ans
 
-    # --- Tier 1: Fireworks AI cloud ---
+    # --- Tier 1: Compress prompt → Cloud call ---
+    compressed = prompt_compressor.compress(prompt)
+    logger.info("Prompt compressed: %d → %d chars", len(prompt), len(compressed))
+
     api_key = os.environ.get("FIREWORKS_API_KEY", "")
     base_url = os.environ.get("FIREWORKS_BASE_URL", "")
     allowed_models = os.environ.get("ALLOWED_MODELS", "")
 
     raw_answer = llm_clients.call_fireworks_category(
-        prompt, category, api_key, base_url, allowed_models
+        compressed, category, api_key, base_url, allowed_models
     )
 
     # --- Post-process: sanitize output ---
-    if raw_answer:
-        answer = output_sanitizer.extract_answer(raw_answer, category)
-    else:
-        answer = ""
+    answer = output_sanitizer.extract_answer(raw_answer, category) if raw_answer else ""
 
     # --- Validate & repair if needed ---
     if not output_sanitizer.validate_answer(answer):
-        logger.warning("Primary answer invalid/blank for category=%s, attempting repair", category)
-        repair_prompt = output_sanitizer.get_repair_prompt(category, prompt)
+        logger.warning("Primary answer invalid for %s, attempting repair", category)
+        repair_prompt = output_sanitizer.get_repair_prompt(category, compressed)
         repair_answer = llm_clients.call_repair(
-            prompt, repair_prompt, api_key, base_url, allowed_models
+            compressed, repair_prompt, api_key, base_url, allowed_models
         )
         if repair_answer:
             answer = output_sanitizer.extract_answer(repair_answer, category)
 
     # --- Final fallback: never return blank ---
     if not output_sanitizer.validate_answer(answer):
-        logger.error("All attempts failed for category=%s, using minimal fallback", category)
-        # Return a minimal non-blank answer rather than an error string
+        logger.error("All attempts failed for %s, using minimal fallback", category)
         answer = _minimal_fallback(category, prompt)
 
     return answer
 
 
+def _try_local_solvers(prompt: str, category: str) -> Optional[str]:
+    """Try all applicable local solvers in order. Returns answer or None."""
+
+    # Math — arithmetic, percentages
+    if category == "math":
+        ans = local_solvers.solve_math(prompt)
+        if ans is not None:
+            return ans
+
+    # Sentiment — lexicon-based classifier
+    if category == "sentiment":
+        ans = local_solvers.solve_sentiment(prompt)
+        if ans is not None:
+            return ans
+
+    # NER — regex extraction
+    if category == "ner":
+        ans = local_solvers.solve_ner(prompt)
+        if ans is not None:
+            return ans
+
+    # Logic puzzles — constraint elimination
+    if category == "logical":
+        ans = local_solvers.solve_logic(prompt)
+        if ans is not None:
+            return ans
+
+    # Code generation — hardcoded algorithm catalog
+    if category == "code_gen":
+        ans = local_solvers.solve_code_gen(prompt)
+        if ans is not None:
+            return ans
+
+    # Code debug — pattern-based fixes
+    if category == "code_debug":
+        ans = local_solvers.solve_code_debug(prompt)
+        if ans is not None:
+            return ans
+
+    return None
+
+
 def _minimal_fallback(category: str, prompt: str) -> str:
     """Generate a minimal non-blank answer when all else fails."""
     if category == "sentiment":
-        return "Neutral. The text does not express strong positive or negative sentiment."
+        return "Neutral."
     elif category == "math":
-        return "Answer: Unable to compute."
+        return "Unable to compute."
     elif category == "logical":
-        return "Answer: Unable to determine from the given constraints."
+        return "Unable to determine from given constraints."
     elif category == "ner":
         return "No named entities found."
     elif category == "summarization":
-        # Return a truncated version of the prompt as a last resort
-        words = prompt.split()[:30]
+        words = prompt.split()[:20]
         return " ".join(words)
     elif category in ("code_debug", "code_gen"):
-        return "# Unable to generate code for this prompt."
+        return "# Unable to generate code."
     else:
         return "Unable to determine answer."

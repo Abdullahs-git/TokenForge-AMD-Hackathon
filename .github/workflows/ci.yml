@@ -33,7 +33,7 @@ jobs:
 
       - name: Verify module imports
         run: |
-          python -c "import main; import router; import llm_clients; import local_solvers; import output_sanitizer; print('✅ All modules imported successfully')"
+          python -c "import main; import router; import llm_clients; import local_solvers; import output_sanitizer; import prompt_compressor; print('✅ All modules imported successfully')"
 
       - name: Verify 8-category classifier
         run: |
