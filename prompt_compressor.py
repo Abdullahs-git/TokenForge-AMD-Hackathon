@@ -53,24 +53,11 @@ _TRAILING_PUNCT = re.compile(r"[.!?]+$")
 
 
 def compress(prompt: str) -> str:
-    """Compress a prompt by removing filler phrases and collapsing whitespace."""
+    """Safe prompt compression: collapse multiple spaces and newlines without removing words."""
     if not prompt:
         return prompt
 
     text = prompt.strip()
-
-    # Remove filler phrases
-    for pattern in _FILLER_PATTERNS:
-        text = pattern.sub("", text)
-
     # Collapse multiple spaces
     text = _MULTI_SPACE.sub(" ", text)
-
-    # Strip leading/trailing whitespace
-    text = text.strip()
-
-    # Ensure we haven't destroyed the prompt
-    if len(text) < 5:
-        return prompt.strip()
-
-    return text
+    return text.strip()

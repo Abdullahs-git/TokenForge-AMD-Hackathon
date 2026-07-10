@@ -20,14 +20,14 @@ SYSTEM_PROMPT = "Concise. No preamble."
 # Drastically tighter budgets than v6.0
 # ---------------------------------------------------------------------------
 CATEGORY_CONFIG: Dict[str, Tuple[str, int]] = {
-    "factual": ("One fact.", 80),
-    "math": ("Final answer only.", 40),
-    "sentiment": ("One label: Positive, Negative, Neutral, or Mixed. One sentence reason.", 32),
-    "summarization": ("Summarize concisely.", 100),
-    "ner": ("List: LABEL: entity, one per line.", 80),
-    "code_debug": ("Corrected code only.", 200),
-    "logical": ("Final answer only.", 48),
-    "code_gen": ("Code only.", 200),
+    "factual": ("Provide a concise, accurate factual answer.", 140),
+    "math": ("Provide the correct numerical answer clearly.", 120),
+    "sentiment": ("Classify sentiment accurately (Positive, Negative, Neutral, or Mixed) and briefly explain.", 60),
+    "summarization": ("Provide an accurate, concise summary.", 120),
+    "ner": ("Extract all named entities accurately.", 100),
+    "code_debug": ("Provide the corrected, bug-free code.", 260),
+    "logical": ("Solve the logic puzzle accurately and state the clear final answer.", 140),
+    "code_gen": ("Write clean, correct working code.", 260),
 }
 
 _NON_CHAT_HINTS = (

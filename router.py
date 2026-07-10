@@ -170,33 +170,9 @@ def _try_local_solvers(prompt: str, category: str) -> Optional[str]:
         if ans is not None:
             return ans
 
-    # Sentiment — lexicon-based classifier
-    if category == "sentiment":
-        ans = local_solvers.solve_sentiment(prompt)
-        if ans is not None:
-            return ans
-
-    # NER — regex extraction
-    if category == "ner":
-        ans = local_solvers.solve_ner(prompt)
-        if ans is not None:
-            return ans
-
-    # Logic puzzles — constraint elimination
-    if category == "logical":
-        ans = local_solvers.solve_logic(prompt)
-        if ans is not None:
-            return ans
-
-    # Code generation — hardcoded algorithm catalog
-    if category == "code_gen":
-        ans = local_solvers.solve_code_gen(prompt)
-        if ans is not None:
-            return ans
-
-    # Code debug — pattern-based fixes
-    if category == "code_debug":
-        ans = local_solvers.solve_code_debug(prompt)
+    # Math — SymPy arithmetic evaluation ($0 tokens, 100% exact)
+    if category == "math":
+        ans = local_solvers.solve_math(prompt)
         if ans is not None:
             return ans
 
