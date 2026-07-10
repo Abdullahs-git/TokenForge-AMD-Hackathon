@@ -1,6 +1,2 @@
-requests
-sympy
-vaderSentiment
-spacy
 openai
-click
+sympy

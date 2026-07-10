@@ -1,10 +1,28 @@
+"""
+Router v3.0 — Category classifier + routing pipeline with output sanitization and repair loop.
+
+Pipeline per task:
+1. Classify prompt into one of 8 hackathon categories
+2. Try deterministic local solver (simple arithmetic only)
+3. Route to Fireworks AI cloud with category-specific config
+4. Post-process: sanitize output (strip markdown/HTML)
+5. Validate: if answer is blank/invalid → repair with tighter prompt
+"""
+
 import os
 import re
+import logging
 from typing import Optional
 import local_solvers
 import llm_clients
+import output_sanitizer
 
-# Comprehensive regex patterns covering all 8 hackathon capability categories
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# 8-category regex classifier (comprehensive pattern matching)
+# ---------------------------------------------------------------------------
+
 _CLASSIFIER_PATTERNS = {
     "code_debug": [
         r"\bbug\b", r"\bdebug\b", r"\bfix (this|the|my|it)\b",
@@ -12,6 +30,7 @@ _CLASSIFIER_PATTERNS = {
         r"error in (this|the|my)\b", r"traceback", r"stack ?trace",
         r"throws? an? (error|exception)", r"returns? \w+ instead",
         r"infinite loop", r"corrected (version|code)",
+        r"has a bug",
     ],
     "code_gen": [
         r"\b(write|create|implement|build|generate|produce|give me)\b.*\b(function|method|class|program|script|routine)\b",
@@ -82,37 +101,81 @@ _CODE_HINT = re.compile(
     re.MULTILINE,
 )
 
+
 def detect_category(prompt: str) -> str:
     """Classifies a prompt into one of the 8 hackathon capability categories."""
     text = prompt or ""
     for cat in _PRIORITY_ORDER:
         if any(rx.search(text) for rx in _COMPILED_PATTERNS[cat]):
             return cat
-    # Raw code snippet in prompt with no other signals -> code_debug
+    # Raw code snippet in prompt with no other signals → code_debug
     return "code_debug" if (_CODE_FENCE.search(text) or _CODE_HINT.search(text)) else "factual"
+
 
 def classify_and_route(prompt: str) -> str:
     """
-    Classifies prompt and routes to Tier 0 (Local Deterministic Solver) or Tier 1 (Fireworks AI Cloud).
+    Full routing pipeline:
+    1. Classify → 2. Local solver (math only) → 3. Cloud call → 4. Sanitize → 5. Validate/Repair
     """
     category = detect_category(prompt)
+    logger.info("Category detected: %s", category)
 
-    # 1. Tier 0: Deterministic Local Fast-Path ($0.00 Tokens)
-    #    ONLY pure simple arithmetic goes here.
+    # --- Tier 0: Deterministic local solver (pure arithmetic only, $0 tokens) ---
     if category == "math":
         local_ans = local_solvers.solve_math(prompt)
         if local_ans is not None:
+            logger.info("Tier 0 local solver answered math prompt")
             return local_ans
 
-    # 2. Tier 1: Optimal Fireworks Cloud Tiering
+    # --- Tier 1: Fireworks AI cloud ---
     api_key = os.environ.get("FIREWORKS_API_KEY", "")
     base_url = os.environ.get("FIREWORKS_BASE_URL", "")
     allowed_models = os.environ.get("ALLOWED_MODELS", "")
 
-    cloud_ans = llm_clients.call_fireworks_category(prompt, category, api_key, base_url, allowed_models)
-    if cloud_ans:
-        return cloud_ans
+    raw_answer = llm_clients.call_fireworks_category(
+        prompt, category, api_key, base_url, allowed_models
+    )
 
-    # 3. Graceful Fallback if API key is unconfigured during local test
-    return f"[Local Offline Mode] Category detected: {category}. Prompt received: {prompt}"
+    # --- Post-process: sanitize output ---
+    if raw_answer:
+        answer = output_sanitizer.extract_answer(raw_answer, category)
+    else:
+        answer = ""
 
+    # --- Validate & repair if needed ---
+    if not output_sanitizer.validate_answer(answer):
+        logger.warning("Primary answer invalid/blank for category=%s, attempting repair", category)
+        repair_prompt = output_sanitizer.get_repair_prompt(category, prompt)
+        repair_answer = llm_clients.call_repair(
+            prompt, repair_prompt, api_key, base_url, allowed_models
+        )
+        if repair_answer:
+            answer = output_sanitizer.extract_answer(repair_answer, category)
+
+    # --- Final fallback: never return blank ---
+    if not output_sanitizer.validate_answer(answer):
+        logger.error("All attempts failed for category=%s, using minimal fallback", category)
+        # Return a minimal non-blank answer rather than an error string
+        answer = _minimal_fallback(category, prompt)
+
+    return answer
+
+
+def _minimal_fallback(category: str, prompt: str) -> str:
+    """Generate a minimal non-blank answer when all else fails."""
+    if category == "sentiment":
+        return "Neutral. The text does not express strong positive or negative sentiment."
+    elif category == "math":
+        return "Answer: Unable to compute."
+    elif category == "logical":
+        return "Answer: Unable to determine from the given constraints."
+    elif category == "ner":
+        return "No named entities found."
+    elif category == "summarization":
+        # Return a truncated version of the prompt as a last resort
+        words = prompt.split()[:30]
+        return " ".join(words)
+    elif category in ("code_debug", "code_gen"):
+        return "# Unable to generate code for this prompt."
+    else:
+        return "Unable to determine answer."

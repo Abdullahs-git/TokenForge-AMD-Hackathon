@@ -30,11 +30,10 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          python -m spacy download en_core_web_sm
 
       - name: Verify module imports
         run: |
-          python -c "import main; import router; import llm_clients; import local_solvers; print('✅ All modules imported successfully')"
+          python -c "import main; import router; import llm_clients; import local_solvers; import output_sanitizer; print('✅ All modules imported successfully')"
 
       - name: Verify 8-category classifier
         run: |
@@ -61,6 +60,20 @@ jobs:
           assert passed == len(tests), f'Classifier failed {len(tests) - passed} tests'
           "
 
+      - name: Verify output sanitizer
+        run: |
+          python -c "
+          from output_sanitizer import strip_formatting, extract_answer, validate_answer
+          # Test markdown stripping
+          assert '**' not in strip_formatting('**bold text**')
+          assert strip_formatting('# Header') == 'Header'
+          # Test validate
+          assert validate_answer('This is a valid answer') == True
+          assert validate_answer('') == False
+          assert validate_answer('[Local Offline Mode] test') == False
+          print('✅ Output sanitizer tests passed')
+          "
+
       - name: Run headless evaluation (offline mode)
         run: |
           python main.py
@@ -78,7 +91,8 @@ jobs:
               assert 'answer' in r, f'Missing answer in {r}'
               assert isinstance(r['task_id'], str), f'task_id must be string: {r}'
               assert isinstance(r['answer'], str), f'answer must be string: {r}'
-          print(f'✅ Valid JSON schema: {len(results)} tasks with task_id + answer')
+              assert len(r['answer'].strip()) > 0, f'answer must be non-empty: {r}'
+          print(f'✅ Valid JSON schema: {len(results)} tasks with task_id + non-empty answer')
           "
 
   # ─────────────────────────────────────────────────────
