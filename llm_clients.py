@@ -1,3 +1,7 @@
+"""
+TokenForge v5.0 — LLM Clients
+Fireworks AI proxy client with dynamic model tiering.
+"""
 import os
 import re
 import logging
@@ -7,56 +11,51 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Role-based, judge-aligned system prompts per category
+# Category configs: (system_prompt, max_tokens, preferred_tier)
+# Concise prompts reduce input token cost while keeping accuracy high.
 # ---------------------------------------------------------------------------
+
+_BASE = "English only. Be concise; no preamble."
 
 CATEGORY_CONFIG: Dict[str, Tuple[str, int, str]] = {
     "factual": (
-        "You are an expert knowledge assistant. Answer the question accurately, clearly, and thoroughly. "
-        "Provide direct facts and crisp explanations.",
-        512,
+        f"{_BASE} Answer accurately and clearly in under 120 words.",
+        300,
         "strong",
     ),
     "math": (
-        "You are an expert mathematical solver. Work through the problem step-by-step showing your reasoning clearly. "
-        "At the end of your response, state your final numerical or algebraic answer on a new line.",
-        768,
+        f"{_BASE} Brief steps, then 'Answer: <value>' on its own line.",
+        400,
         "strong",
     ),
     "sentiment": (
-        "You are an expert sentiment analyst. Classify the overall sentiment of the text as Positive, Negative, Neutral, or Mixed. "
-        "Provide a clear, brief justification explaining what specific aspects led to that classification.",
-        384,
-        "strong",
+        f"{_BASE} Label sentiment as Positive, Negative, Neutral, or Mixed, then one short justification.",
+        120,
+        "cheap",
     ),
     "summarization": (
-        "You are an expert text summarizer. Provide a concise, accurate summary that captures the main ideas. "
-        "Strictly adhere to any explicit format or length constraints requested in the prompt.",
-        512,
-        "strong",
+        f"{_BASE} Output only the summary; obey any stated length or format constraint.",
+        220,
+        "cheap",
     ),
     "ner": (
-        "You are an expert named entity recognition specialist. Extract all named entities from the text. "
-        "Clearly identify each entity and label its type (e.g., PERSON, ORGANIZATION, LOCATION, DATE).",
-        512,
-        "strong",
+        f"{_BASE} List each entity as 'label: value', one per line; labels: PERSON, ORGANIZATION, LOCATION, DATE.",
+        260,
+        "cheap",
     ),
     "code_debug": (
-        "You are an expert software engineer and code debugger. First explain the bug clearly. "
-        "Then provide the corrected, working code implementation inside a code block.",
-        1024,
+        f"{_BASE} Name the bug in one sentence, then give the corrected code in a fenced block.",
+        520,
         "code",
     ),
     "logical": (
-        "You are an expert logical reasoning solver. Solve the puzzle step-by-step, verifying every condition and constraint carefully. "
-        "State your final deduced answer clearly at the end.",
-        768,
+        f"{_BASE} Deduce in brief numbered steps checking every constraint, then 'Answer: <value>' on its own line.",
+        420,
         "strong",
     ),
     "code_gen": (
-        "You are an expert software engineer. Write clean, correct, well-structured code meeting the exact prompt specification. "
-        "Include concise comments explaining the logic.",
-        1024,
+        f"{_BASE} Output only the code in one fenced block, correct and self-contained.",
+        520,
         "code",
     ),
 }
@@ -138,7 +137,6 @@ class FireworksModelTierer:
         strong = self.get_model("strong")
         if strong and strong not in chain:
             chain.append(strong)
-        # Add any remaining models not already in the chain
         for m in self.all_models:
             if m not in chain:
                 chain.append(m)
@@ -146,33 +144,10 @@ class FireworksModelTierer:
 
 
 # ---------------------------------------------------------------------------
-# Prompt compression (strip politeness filler to save tokens)
-# ---------------------------------------------------------------------------
-
-_FILLER_PATTERNS = [
-    (re.compile(r"\b(could you |would you |can you )(please |kindly )?", re.I), ""),
-    (re.compile(r"\bplease\b", re.I), ""),
-    (re.compile(r"\bi would like you to\b", re.I), ""),
-    (re.compile(r"\bi want you to\b", re.I), ""),
-    (re.compile(r"\bi need you to\b", re.I), ""),
-    (re.compile(r"\bthanks? ?(you|in advance)?\\.?\\s*$", re.I), ""),
-]
-
-
-def _compress_prompt(prompt: str) -> str:
-    """Strip politeness filler from prompts to save input tokens."""
-    result = prompt
-    for pattern, replacement in _FILLER_PATTERNS:
-        result = pattern.sub(replacement, result)
-    result = re.sub(r"  +", " ", result).strip()
-    return result if result else prompt  # Never return empty
-
-
-# ---------------------------------------------------------------------------
 # API call with reasoning_effort and full fallback chain
 # ---------------------------------------------------------------------------
 
-# Track which models don't support reasoning_effort so we don't retry
+# Track which models don't support reasoning_effort so we don't retry them
 _no_effort_param: set = set()
 
 
@@ -185,13 +160,13 @@ def call_fireworks_category(
 ) -> Optional[str]:
     """
     Calls Fireworks AI via the official OpenAI-compatible client.
-    
+
     Features:
-    - Category-specific judge-aligned system prompts
+    - Category-specific concise system prompts
     - Strict max_tokens ceilings
-    - reasoning_effort="none" for deterministic output (with graceful fallback)
-    - Full model fallback chain (primary → strong → all remaining)
-    - Prompt compression to save input tokens
+    - reasoning_effort="none" for deterministic fast output (with graceful fallback)
+    - Full model fallback chain (primary -> strong -> all remaining)
+    - temperature=0.0 for exact deterministic answers
     """
     if not api_key or not base_url or not allowed_models:
         return None
@@ -199,14 +174,14 @@ def call_fireworks_category(
     tierer = FireworksModelTierer(allowed_models)
     system_prompt, max_tokens, preferred_tier = CATEGORY_CONFIG.get(
         category,
-        ("Answer clearly and concisely. No markdown formatting.", 384, "strong")
+        (f"{_BASE} Answer clearly.", 300, "strong")
     )
 
     fallback_chain = tierer.get_fallback_chain(preferred_tier)
     if not fallback_chain:
         return None
 
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0, max_retries=3)
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=25.0, max_retries=3)
 
     for model in fallback_chain:
         text = _call_model(client, model, prompt, system_prompt, max_tokens)
@@ -235,12 +210,8 @@ def call_repair(
     if not strong:
         return None
 
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0, max_retries=2)
-    return _call_model(
-        client, strong, prompt,
-        repair_instruction,
-        max_tokens=600,
-    )
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=25.0, max_retries=2)
+    return _call_model(client, strong, prompt, repair_instruction, max_tokens=400)
 
 
 def _call_model(
@@ -250,7 +221,13 @@ def _call_model(
     system: str,
     max_tokens: int,
 ) -> Optional[str]:
-    """Make one API call across fallback chain."""
+    """Make one API call with reasoning_effort='none' and graceful fallback."""
+    global _no_effort_param
+
+    kwargs = {}
+    if model not in _no_effort_param:
+        kwargs["reasoning_effort"] = "none"
+
     try:
         response = client.chat.completions.create(
             model=model,
@@ -258,12 +235,30 @@ def _call_model(
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.1,
+            temperature=0.0,
             max_tokens=max_tokens,
+            **kwargs,
         )
     except Exception as e:
-        logger.error("Fireworks API call failed for model %s: %s", model, e)
-        return None
+        # If reasoning_effort is not supported by this model, retry without it
+        if kwargs and "invalid_request_error" in str(e).lower():
+            _no_effort_param.add(model)
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.0,
+                    max_tokens=max_tokens,
+                )
+            except Exception as e2:
+                logger.error("Fireworks API call failed for model %s (retry): %s", model, e2)
+                return None
+        else:
+            logger.error("Fireworks API call failed for model %s: %s", model, e)
+            return None
 
     try:
         content = response.choices[0].message.content

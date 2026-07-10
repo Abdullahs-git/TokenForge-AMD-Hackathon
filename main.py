@@ -1,5 +1,5 @@
 """
-TokenForge v3.0 — Main Entry Point
+TokenForge v5.0 — Main Entry Point
 
 Container contract:
 - Read:  /input/tasks.json  → [{"task_id": "...", "prompt": "..."}, ...]
@@ -117,7 +117,7 @@ def process_single_task(task: Dict[str, Any], cache: ResponseCache) -> Dict[str,
 
 def main() -> None:
     start_time = time.monotonic()
-    logger.info("TokenForge v3.0 starting...")
+    logger.info("TokenForge v5.0 starting...")
 
     # 1. Define paths (container standard vs local fallback)
     input_path = "/input/tasks.json" if os.path.exists("/input/tasks.json") else "input/tasks.json"
