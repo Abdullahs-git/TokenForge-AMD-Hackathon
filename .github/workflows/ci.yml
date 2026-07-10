@@ -33,45 +33,27 @@ jobs:
 
       - name: Verify module imports
         run: |
-          python -c "import main; import router; import llm_clients; import local_solvers; import output_sanitizer; import prompt_compressor; print('✅ All modules imported successfully')"
+          python -c "import main; import router; import local_solvers; print('✅ All v8.0 modules imported successfully')"
 
-      - name: Verify 8-category classifier
+      - name: Verify Tier 0 SymPy Math Solver
         run: |
           python -c "
-          from router import detect_category
-          tests = {
-              'What is the capital of France?': 'factual',
-              'Calculate 15% of 240': 'math',
-              'Classify the sentiment of this review': 'sentiment',
-              'Summarize the following paragraph': 'summarization',
-              'Extract all named entities from the text': 'ner',
-              'This function has a bug: def get_max': 'code_debug',
-              'Three friends each own a different pet. Sam does not own the bird': 'logical',
-              'Write a Python function that returns the second-largest number': 'code_gen',
-          }
-          passed = 0
-          for prompt, expected in tests.items():
-              result = detect_category(prompt)
-              status = '✅' if result == expected else '❌'
-              print(f'{status} \"{prompt[:50]}...\" → {result} (expected: {expected})')
-              if result == expected:
-                  passed += 1
-          print(f'\nClassifier accuracy: {passed}/{len(tests)}')
-          assert passed == len(tests), f'Classifier failed {len(tests) - passed} tests'
+          from local_solvers import solve_math_expression
+          assert solve_math_expression('What is 144 / 12?') == '12'
+          assert solve_math_expression('Calculate 25 * 4') == '100'
+          assert solve_math_expression('What is the capital of France?') is None
+          print('✅ Tier 0 SymPy Math Solver verified successfully')
           "
 
-      - name: Verify output sanitizer
+      - name: Verify Output Sanitizer & Quality-Maximized Prompting
         run: |
           python -c "
-          from output_sanitizer import strip_formatting, extract_answer, validate_answer
-          # Test formatting preservation
-          assert strip_formatting('**bold text**') == '**bold text**'
-          assert extract_answer('- item 1\n- item 2', 'ner') == '- item 1\n- item 2'
-          # Test validate
-          assert validate_answer('This is a valid answer') == True
-          assert validate_answer('') == False
-          assert validate_answer('[Local Offline Mode] test') == False
-          print('✅ Output sanitizer tests passed')
+          from router import sanitize_output, select_best_model
+          assert sanitize_output('<think>reasoning step</think>Direct answer.') == 'Direct answer.'
+          models = ['accounts/fireworks/models/llama-v3p1-8b-instruct', 'accounts/fireworks/models/minimax-m3']
+          best = select_best_model('Explain quantum physics', models)
+          assert 'minimax-m3' in best
+          print('✅ Output sanitizer & model tierer verified successfully')
           "
 
       - name: Run headless evaluation (offline mode)
