@@ -8,7 +8,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application source code
-COPY main.py router.py llm_clients.py local_solvers.py output_sanitizer.py prompt_compressor.py ./
+COPY main.py router.py local_solvers.py ./
 
 # Create input/output mount points
 RUN mkdir -p /input /output
