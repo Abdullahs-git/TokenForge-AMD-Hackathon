@@ -1,31 +1,56 @@
 """
-TokenForge v5.0 — Output Sanitizer
+TokenForge v6.0 — Output Sanitizer
 
-Validates non-empty output and provides repair prompt generation.
-Does NOT strip or mutate LLM output — raw model responses are passed
-directly to results.json so the LLM-Judge receives them intact.
+Cleans up model preambles and formatting to keep the answers short,
+clean, and correct for the LLM-Judge evaluation.
 """
+import re
 
-from typing import Optional
+_PREAMBLE_RE = re.compile(
+    r"^(sure[,.!]?|okay[,.!]?|certainly[,.!]?|here'?s?( is)?( the)?( answer)?[,.!]?:?|the answer is[,.!]?:?|"
+    r"the correct answer is[,.!]?:?|final answer[,.!]?:?|answer[,.!]?:?|result[,.!]?:?)\s*",
+    re.IGNORECASE,
+)
+_CODE_FENCE_RE = re.compile(r"^```[a-zA-Z]*\n?|```$", re.MULTILINE)
 
+def strip_preamble(text: str) -> str:
+    """Recursively strip conversational headers from the start of the answer."""
+    text = (text or "").strip()
+    prev = None
+    while prev != text:
+        prev = text
+        text = _PREAMBLE_RE.sub("", text).strip()
+    return text
+
+def strip_code_fences(text: str) -> str:
+    """Strip wrapping ```code``` fences from the answer."""
+    return _CODE_FENCE_RE.sub("", text or "").strip()
 
 def extract_answer(raw: str, category: str) -> str:
     """
-    Returns the raw LLM output ready for results.json.
-    Preserves all formatting (markdown, bullet points, code fences)
-    so the LLM-Judge receives the answer exactly as the model wrote it.
+    Returns the cleaned raw LLM output ready for results.json.
+    Cleans wrapping fences and conversational preambles from non-code tasks
+    so the final output remains compact and focused.
     """
     if not raw or not raw.strip():
         return ""
-    return raw.strip()
-
+    
+    cleaned = raw.strip()
+    if category not in ("code_gen", "code_debug"):
+        # For non-code tasks, clean wrapping fences and pleasantries
+        cleaned = strip_code_fences(cleaned)
+        cleaned = strip_preamble(cleaned)
+    else:
+        # For code tasks, only strip wrapping fences so indentation remains intact
+        cleaned = strip_code_fences(cleaned)
+        
+    return cleaned.strip()
 
 def strip_formatting(text: str) -> str:
-    """Trim leading/trailing whitespace only. Does NOT strip markdown."""
+    """Trim leading/trailing whitespace only."""
     if not text:
         return ""
     return text.strip()
-
 
 def validate_answer(answer: str) -> bool:
     """Check if an answer is valid (non-empty, non-placeholder)."""
@@ -38,18 +63,16 @@ def validate_answer(answer: str) -> bool:
     ]
     return not any(bp in answer for bp in bad_patterns)
 
-
 _REPAIR_PROMPTS = {
     "factual": "Answer the question directly and accurately.",
     "math": "Solve the problem. Show brief steps. End with 'Answer: <value>' on its own line.",
     "sentiment": "Classify as Positive, Negative, Neutral, or Mixed. Give one sentence justification.",
     "summarization": "Provide only the summary. Obey any stated length or format constraint.",
-    "ner": "List each entity as 'LABEL: name', one per line. Labels: PERSON, ORGANIZATION, LOCATION, DATE.",
+    "ner": "List each entity as 'LABEL: name', one per line. Types: PERSON, ORGANIZATION, LOCATION, DATE.",
     "code_debug": "Name the bug in one sentence, then provide the corrected code in a fenced block.",
     "logical": "Solve step by step. End with 'Answer: <value>' on its own line.",
     "code_gen": "Write the requested code in one fenced block, correct and self-contained.",
 }
-
 
 def get_repair_prompt(category: str, original_prompt: str) -> str:
     """Generate a repair prompt for when the primary answer is blank or invalid."""

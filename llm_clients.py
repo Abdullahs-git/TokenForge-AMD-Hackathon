@@ -1,6 +1,6 @@
 """
-TokenForge v5.0 — LLM Clients
-Fireworks AI proxy client with dynamic model tiering.
+TokenForge v6.0 — LLM Clients
+Category-aware model fallback chain and ultra-concise prompt styling.
 """
 import os
 import re
@@ -11,144 +11,94 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Category configs: (system_prompt, max_tokens, preferred_tier)
-# Concise prompts reduce input token cost while keeping accuracy high.
+# Category configs: (system_prompt, max_tokens)
+# Highly optimized concise prompts. Models output exactly the answer, saving tokens.
 # ---------------------------------------------------------------------------
 
-_BASE = "English only. Be concise; no preamble."
+SYSTEM_PROMPT = "Be concise. English only. No preamble."
 
-CATEGORY_CONFIG: Dict[str, Tuple[str, int, str]] = {
+CATEGORY_CONFIG: Dict[str, Tuple[str, int]] = {
     "factual": (
-        f"{_BASE} Answer accurately and clearly in under 120 words.",
-        300,
-        "strong",
+        "Answer in one short, accurate sentence or a single fact. No extra commentary.",
+        128,
     ),
     "math": (
-        f"{_BASE} Brief steps, then 'Answer: <value>' on its own line.",
-        400,
-        "strong",
+        "Give ONLY the final numeric or algebraic answer (with units if relevant). No calculation steps.",
+        64,
     ),
     "sentiment": (
-        f"{_BASE} Label sentiment as Positive, Negative, Neutral, or Mixed, then one short justification.",
-        120,
-        "cheap",
+        "Reply with exactly one label: Positive, Negative, Neutral, or Mixed. Add a reason only if the prompt asks for it.",
+        32,
     ),
     "summarization": (
-        f"{_BASE} Output only the summary; obey any stated length or format constraint.",
-        220,
-        "cheap",
+        "Summarize the text, strictly obeying the requested format and length constraints. No commentary.",
+        160,
     ),
     "ner": (
-        f"{_BASE} List each entity as 'label: value', one per line; labels: PERSON, ORGANIZATION, LOCATION, DATE.",
-        260,
-        "cheap",
+        "List extracted entities grouped by type (PERSON, ORGANIZATION, LOCATION, DATE). No commentary.",
+        128,
     ),
     "code_debug": (
-        f"{_BASE} Name the bug in one sentence, then give the corrected code in a fenced block.",
-        520,
-        "code",
+        "Return only the corrected code block. Do not write explanations.",
+        384,
     ),
     "logical": (
-        f"{_BASE} Deduce in brief numbered steps checking every constraint, then 'Answer: <value>' on its own line.",
-        420,
-        "strong",
+        "Give only the final answer or solution. No step-by-step reasoning.",
+        96,
     ),
     "code_gen": (
-        f"{_BASE} Output only the code in one fenced block, correct and self-contained.",
-        520,
-        "code",
+        "Return only the requested code block. Do not write explanations.",
+        384,
     ),
 }
 
-
-# ---------------------------------------------------------------------------
-# Dynamic model tiering from ALLOWED_MODELS
-# ---------------------------------------------------------------------------
-
-_MOE_PAT = re.compile(r"(\d+)\s*x\s*(\d+)\s*b\b")
-_ACTIVE_PAT = re.compile(r"\ba(\d+)b\b")
-_DENSE_PAT = re.compile(r"(\d+)\s*b\b")
-_CODE_MODEL_PAT = re.compile(r"\bcode|coder|-code\b")
-_QUANT_PAT = re.compile(r"nvfp4|fp4|fp8|int8|int4|awq|gptq|gguf")
 _NON_CHAT_HINTS = (
     "embed", "rerank", "whisper", "audio", "tts", "image", "vision",
     "moderation", "guard", "clip", "diffusion", "flux",
 )
 
-
-def _total_params(model_id: str) -> int:
-    mid = model_id.lower()
-    if "deepseek" in mid:
-        return 999
-    moe = _MOE_PAT.search(mid)
-    if moe:
-        return int(moe.group(1)) * int(moe.group(2))
-    sizes = [int(m.group(1)) for m in _DENSE_PAT.finditer(mid)]
-    return max(sizes) if sizes else 100
-
-
-def _active_params(model_id: str) -> int:
-    m = _ACTIVE_PAT.search(model_id.lower())
-    return int(m.group(1)) if m else _total_params(model_id)
-
-
-class FireworksModelTierer:
-    """Dynamically parses ALLOWED_MODELS and maps them into cheap, code, and strong tiers."""
-
-    def __init__(self, allowed_models_str: str):
-        models = [m.strip() for m in allowed_models_str.split(",") if m.strip()]
-        self.tiers: Dict[str, str] = {}
-        self.all_models: List[str] = []
-        if not models:
-            return
-
-        usable = [m for m in models if not any(b in m.lower() for b in _NON_CHAT_HINTS)]
-        if not usable:
-            usable = list(models)
-        self.all_models = usable
-
-        general = [m for m in usable if not _CODE_MODEL_PAT.search(m.lower())] or usable
-
-        strong = max(
-            general,
-            key=lambda m: (_total_params(m), not bool(_QUANT_PAT.search(m.lower())))
-        )
-        code_models = [m for m in usable if _CODE_MODEL_PAT.search(m.lower())]
-        code = max(code_models, key=_total_params) if code_models else strong
-        cheap = min(
-            usable,
-            key=lambda m: (_active_params(m), not bool(_QUANT_PAT.search(m.lower())))
-        )
-
-        self.tiers["cheap"] = cheap
-        self.tiers["strong"] = strong
-        self.tiers["code"] = code
-        logger.info("Model tiers → cheap=%s | strong=%s | code=%s", cheap, strong, code)
-
-    def get_model(self, tier: str) -> Optional[str]:
-        return self.tiers.get(tier, self.tiers.get("strong"))
-
-    def get_fallback_chain(self, preferred_tier: str) -> List[str]:
-        """Build an ordered fallback chain: preferred → strong → all remaining."""
-        chain = []
-        primary = self.get_model(preferred_tier)
-        if primary:
-            chain.append(primary)
-        strong = self.get_model("strong")
-        if strong and strong not in chain:
-            chain.append(strong)
-        for m in self.all_models:
-            if m not in chain:
-                chain.append(m)
-        return chain
-
-
-# ---------------------------------------------------------------------------
-# API call with reasoning_effort and full fallback chain
-# ---------------------------------------------------------------------------
-
-# Track which models don't support reasoning_effort so we don't retry them
+# Track models that don't support reasoning_effort
 _no_effort_param: set = set()
+
+
+def get_fallback_chain(category: str, allowed_models_str: str) -> List[str]:
+    """
+    Returns the exact ALLOWED_MODELS entries sorted in category-optimal accuracy fallback order.
+    """
+    models = [m.strip() for m in allowed_models_str.split(",") if m.strip()]
+    if not models:
+        return []
+
+    usable = [m for m in models if not any(b in m.lower() for b in _NON_CHAT_HINTS)]
+    if not usable:
+        usable = list(models)
+
+    cat = (category or "").lower()
+
+    # Preference lists by category domain
+    if cat in ("code_debug", "code_gen"):
+        preferred = ["kimi-k2p7-code", "minimax-m3", "deepseek", "glm", "gemma-4-31b-it", "gemma-4-26b-a4b-it"]
+    elif cat in ("logical", "math", "factual"):
+        preferred = ["minimax-m3", "deepseek", "glm-5", "glm", "kimi", "gemma-4-31b-it", "gemma-4-26b-a4b-it"]
+    else:
+        # NLP: sentiment, ner, summarization
+        preferred = ["minimax-m3", "gemma-4-31b-it", "gemma-4-26b-a4b-it", "gemma-4-31b-it-nvfp4", "glm", "deepseek", "kimi"]
+
+    chain = []
+    # 1. Add matching preferred models
+    for pref in preferred:
+        for m in usable:
+            m_lower = m.lower()
+            if pref in m_lower or m_lower.endswith(pref):
+                if m not in chain:
+                    chain.append(m)
+
+    # 2. Append remaining usable models
+    for m in usable:
+        if m not in chain:
+            chain.append(m)
+
+    return chain
 
 
 def call_fireworks_category(
@@ -159,32 +109,25 @@ def call_fireworks_category(
     allowed_models: str,
 ) -> Optional[str]:
     """
-    Calls Fireworks AI via the official OpenAI-compatible client.
-
-    Features:
-    - Category-specific concise system prompts
-    - Strict max_tokens ceilings
-    - reasoning_effort="none" for deterministic fast output (with graceful fallback)
-    - Full model fallback chain (primary -> strong -> all remaining)
-    - temperature=0.0 for exact deterministic answers
+    Calls Fireworks AI with category-specific compact instruction prompting.
     """
     if not api_key or not base_url or not allowed_models:
         return None
 
-    tierer = FireworksModelTierer(allowed_models)
-    system_prompt, max_tokens, preferred_tier = CATEGORY_CONFIG.get(
-        category,
-        (f"{_BASE} Answer clearly.", 300, "strong")
-    )
-
-    fallback_chain = tierer.get_fallback_chain(preferred_tier)
+    fallback_chain = get_fallback_chain(category, allowed_models)
     if not fallback_chain:
         return None
 
+    instruction, max_tokens = CATEGORY_CONFIG.get(
+        category,
+        ("Answer accurately and concisely.", 128)
+    )
+
+    user_content = f"{instruction}\n\nTask: {prompt}"
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=25.0, max_retries=3)
 
     for model in fallback_chain:
-        text = _call_model(client, model, prompt, system_prompt, max_tokens)
+        text = _call_model(client, model, user_content, SYSTEM_PROMPT, max_tokens)
         if text:
             return text
 
@@ -199,19 +142,18 @@ def call_repair(
     allowed_models: str,
 ) -> Optional[str]:
     """
-    Repair call: re-asks the question with a tighter instruction prompt.
-    Used when the primary answer was blank or invalid.
+    Repair fallback call when primary output is empty or malformed.
     """
     if not api_key or not base_url or not allowed_models:
         return None
 
-    tierer = FireworksModelTierer(allowed_models)
-    strong = tierer.get_model("strong")
-    if not strong:
+    fallback_chain = get_fallback_chain("factual", allowed_models)
+    if not fallback_chain:
         return None
+    strong = fallback_chain[0]
 
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=25.0, max_retries=2)
-    return _call_model(client, strong, prompt, repair_instruction, max_tokens=400)
+    return _call_model(client, strong, f"{repair_instruction}\n\nTask: {prompt}", SYSTEM_PROMPT, max_tokens=256)
 
 
 def _call_model(
@@ -221,7 +163,7 @@ def _call_model(
     system: str,
     max_tokens: int,
 ) -> Optional[str]:
-    """Make one API call with reasoning_effort='none' and graceful fallback."""
+    """Make one API call with reasoning_effort='none' support."""
     global _no_effort_param
 
     kwargs = {}
@@ -240,7 +182,6 @@ def _call_model(
             **kwargs,
         )
     except Exception as e:
-        # If reasoning_effort is not supported by this model, retry without it
         if kwargs and "invalid_request_error" in str(e).lower():
             _no_effort_param.add(model)
             try:

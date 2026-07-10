@@ -8,6 +8,8 @@ _MATH_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_PERCENT_OF_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%\s*of\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
+
 def clean_math_prompt(prompt: str) -> str:
     """Cleans English conversational prefixes/suffixes from algebraic expressions."""
     text = prompt.strip()
@@ -17,7 +19,7 @@ def clean_math_prompt(prompt: str) -> str:
 
 def solve_math(prompt: str) -> Optional[str]:
     """
-    Deterministically solves pure simple arithmetic expressions ($0 token cost).
+    Deterministically solves pure simple arithmetic expressions and percentages ($0 token cost).
     Returns None if prompt is a complex multi-step word problem requiring LLM reasoning.
     """
     try:
@@ -25,7 +27,16 @@ def solve_math(prompt: str) -> Optional[str]:
         if len(text.split()) > 20:
             return None
 
-        # Try fast regex match for standard binary operations (A op B)
+        # 1. Percentage of calculation (e.g. "what is 15% of 240")
+        pct_match = _PERCENT_OF_RE.search(text)
+        if pct_match:
+            pct = float(pct_match.group(1))
+            base = float(pct_match.group(2))
+            res = (pct / 100.0) * base
+            ans_str = str(int(res)) if res == int(res) else str(round(res, 6))
+            return f"Answer: {ans_str}"
+
+        # 2. Fast regex match for standard binary operations (A op B)
         match = _MATH_PATTERN.search(text)
         if match:
             a_val, op, b_val = float(match.group(1)), match.group(2), float(match.group(3))
@@ -50,7 +61,7 @@ def solve_math(prompt: str) -> Optional[str]:
         if not cleaned or len(cleaned.split()) > 8:
             return None
 
-        # Clean simple linear equation "a*x + b = c"
+        # 3. Simple linear equation "a*x + b = c"
         if "=" in cleaned:
             parts = cleaned.split("=")
             if len(parts) == 2:
@@ -65,4 +76,3 @@ def solve_math(prompt: str) -> Optional[str]:
         return None
     except Exception:
         return None
-
