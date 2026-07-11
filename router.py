@@ -1,15 +1,13 @@
 """
-TokenForge — AMD Judge-Aligned Hybrid Routing Engine
-Aligned with the Official AMD Hackathon Judging FAQ & Public Validation Examples:
-- Strictly obeys sentence/word/bullet counts for Summarization
-- Acknowledges both positive & negative aspects for Sentiment Classification
-- Accurately captures multi-part answers for Math & Factual Knowledge
-- Exhaustively extracts entities for NER
+TokenForge v11.0 — Ultra-Lean AMD Judge-Aligned Hybrid Router
+Targeting 1000-1500 Total Tokens across 19 evaluation tasks @ 100.0% Accuracy
+Uses Ultra-Lean Micro-Prompts (<12 tokens each) + Tier 0 Deterministic Solvers
 """
 
 import re
 import logging
 from typing import Optional, List, Dict, Tuple, Any
+import local_solvers
 
 logger = logging.getLogger("tokenforge.router")
 
@@ -29,49 +27,47 @@ _FLUFF_SUFFIXES = [
 ]
 
 # ---------------------------------------------------------------------------
-# 1. Exact AMD Judge-Aligned System Prompts & Token Ceilings
+# 1. Ultra-Lean Micro-Prompts (<12 tokens each) for 1000-1500 Token Target
 # ---------------------------------------------------------------------------
-_BASE = "English only. Be concise; no preamble."
-
 TASK_CONFIG: Dict[str, Dict[str, Any]] = {
     "factual": {
-        "system_prompt": f"{_BASE} Explain clearly and accurately, directly addressing all parts of the prompt.",
-        "max_tokens": 300,
+        "system_prompt": "Direct, exact, concise answer. No preamble.",
+        "max_tokens": 160,
         "tier": "strong",
     },
     "math": {
-        "system_prompt": f"{_BASE} Provide clear step-by-step calculations and explicitly state all required answers accurately.",
-        "max_tokens": 400,
+        "system_prompt": "Show brief steps, then exact final answer.",
+        "max_tokens": 180,
         "tier": "strong",
     },
     "sentiment": {
-        "system_prompt": f"{_BASE} State the sentiment label, then give a one-sentence justification acknowledging all key aspects (both positive and negative elements if present).",
-        "max_tokens": 140,
+        "system_prompt": "Label Positive/Negative/Neutral, then 1 sentence covering positive and negative aspects.",
+        "max_tokens": 80,
         "tier": "cheap",
     },
     "summarization": {
-        "system_prompt": f"{_BASE} Output only the summary. Strictly obey all sentence count, bullet point count, and word-limit constraints stated in the prompt.",
-        "max_tokens": 240,
+        "system_prompt": "Output summary only. Strictly obey exact sentence/bullet/word constraints.",
+        "max_tokens": 140,
         "tier": "cheap",
     },
     "ner": {
-        "system_prompt": f"{_BASE} Extract all named entities accurately and list each on its own line as 'LABEL: Entity Name'.",
-        "max_tokens": 260,
+        "system_prompt": "List each entity as LABEL: Name.",
+        "max_tokens": 120,
         "tier": "cheap",
     },
     "code_debug": {
-        "system_prompt": f"{_BASE} Name the bug concisely, then provide the corrected code in a single self-contained fenced block.",
-        "max_tokens": 520,
+        "system_prompt": "State bug briefly, then corrected code block.",
+        "max_tokens": 280,
         "tier": "code",
     },
     "logic": {
-        "system_prompt": f"{_BASE} Deduce step-by-step verifying every constraint, then state the final answer clearly.",
-        "max_tokens": 420,
+        "system_prompt": "Brief deduction steps, then exact answer.",
+        "max_tokens": 180,
         "tier": "strong",
     },
     "code_gen": {
-        "system_prompt": f"{_BASE} Output only the complete, correct, self-contained code in a single fenced block.",
-        "max_tokens": 520,
+        "system_prompt": "Output only complete code block.",
+        "max_tokens": 280,
         "tier": "code",
     },
 }
@@ -162,68 +158,7 @@ def select_model(prompt: str, category: str, allowed_models: List[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 4. Tier 0 Local Deterministic Solvers ($0 API cost, 0 tokens)
-# ---------------------------------------------------------------------------
-def solve_equation(prompt: str) -> Optional[str]:
-    """Tier 0 solver for simple linear equations like '2*x + 5 = 15'."""
-    match = re.search(
-        r"(?:solve\s+(?:the\s+)?(?:equation\s+)?)(?:for\s+[a-z]\s*:\s*)?([0-9]+)\s*\*\s*([a-z])\s*([\+\-])\s*([0-9]+)\s*=\s*([0-9]+)",
-        prompt,
-        re.IGNORECASE,
-    )
-    if not match:
-        return None
-
-    try:
-        a = int(match.group(1))
-        var = match.group(2)
-        op = match.group(3)
-        b = int(match.group(4))
-        c = int(match.group(5))
-
-        if op == "+":
-            rhs = c - b
-        else:
-            rhs = c + b
-
-        if rhs % a == 0:
-            val = rhs // a
-            return f"Answer: {val}"
-    except Exception:
-        pass
-
-    return None
-
-
-def solve_arithmetic(prompt: str) -> Optional[str]:
-    """Tier 0 solver for pure arithmetic expressions like 'Calculate 144 / 12'."""
-    text = prompt.strip()
-    match = re.match(
-        r"^(?:what is|calculate|compute|evaluate)\s+([0-9\s\+\-\*\/\(\)\.]+)\??$",
-        text,
-        re.IGNORECASE,
-    )
-    if not match:
-        return None
-
-    expr = match.group(1).strip()
-    if not re.match(r"^[0-9\s\+\-\*\/\(\)\.]+$", expr):
-        return None
-
-    try:
-        val = eval(expr, {"__builtins__": {}}, {})
-        if isinstance(val, (int, float)):
-            if val == int(val):
-                return f"Answer: {int(val)}"
-            return f"Answer: {val:.4g}"
-    except Exception:
-        pass
-
-    return None
-
-
-# ---------------------------------------------------------------------------
-# 5. Output Sanitization
+# 4. Output Sanitization
 # ---------------------------------------------------------------------------
 def sanitize_output(raw_text: str) -> str:
     """Clean internal CoT reasoning traces and conversational fluff."""
@@ -242,23 +177,23 @@ def sanitize_output(raw_text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 6. Pipeline Orchestration
+# 5. Pipeline Orchestration
 # ---------------------------------------------------------------------------
 def solve_prompt(prompt: str, api_key: str, base_url: str, allowed_models: List[str]) -> str:
     """Execute complete Judge-Aligned routing and evaluation pipeline."""
     if not prompt or not prompt.strip():
         return "Unable to determine answer."
 
-    # --- Tier 0 Deterministic Solvers ---
-    eq_res = solve_equation(prompt)
-    if eq_res is not None:
-        logger.info("Tier 0 Local Solver HIT: %s -> %s", prompt[:35], eq_res)
-        return eq_res
+    # --- Tier 0 Deterministic Solvers (0 tokens, 100% accurate) ---
+    local_math = local_solvers.solve_math_expression(prompt)
+    if local_math is not None:
+        logger.info("Tier 0 Local Math Solver HIT: %s -> %s", prompt[:35], local_math)
+        return local_math
 
-    arith_res = solve_arithmetic(prompt)
-    if arith_res is not None:
-        logger.info("Tier 0 Local Solver HIT: %s -> %s", prompt[:35], arith_res)
-        return arith_res
+    local_eq = local_solvers.solve_linear_equation(prompt)
+    if local_eq is not None:
+        logger.info("Tier 0 Local Equation Solver HIT: %s -> %s", prompt[:35], local_eq)
+        return local_eq
 
     # --- Tier 1 SOTA Cloud Model Execution ---
     category = classify_task(prompt)
