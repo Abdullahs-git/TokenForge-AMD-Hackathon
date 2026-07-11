@@ -157,10 +157,33 @@ def select_model(prompt: str, category: str, allowed_models: List[str]) -> str:
     return allowed_models[0]
 
 
+def select_best_model(arg1: str, arg2: Any, arg3: Any = None, task_type: Optional[str] = None) -> str:
+    """Backward-compatible model selection helper for CI and test harnesses."""
+    if isinstance(arg2, str) and isinstance(arg3, list):
+        return select_model(arg1, arg2, arg3)
+    elif isinstance(arg2, list):
+        cat = task_type or arg3 or classify_task(arg1)
+        if not isinstance(cat, str):
+            cat = classify_task(arg1)
+        return select_model(arg1, cat, arg2)
+    return "accounts/fireworks/models/llama-v3p1-70b-instruct"
+
+
+def resolve_model_tiers(allowed_models: List[str]) -> Dict[str, str]:
+    """Resolve optimal models for cheap, code, and strong tiers."""
+    return {
+        "cheap": select_model("", "sentiment", allowed_models),
+        "code": select_model("", "code_gen", allowed_models),
+        "strong": select_model("", "factual", allowed_models),
+    }
+
+
+
+
 # ---------------------------------------------------------------------------
 # 4. Output Sanitization
 # ---------------------------------------------------------------------------
-def sanitize_output(raw_text: str) -> str:
+def sanitize_output(raw_text: str, **kwargs: Any) -> str:
     """Clean internal CoT reasoning traces and conversational fluff."""
     if not raw_text:
         return ""
