@@ -36,42 +36,42 @@ _BASE = "English only. Be concise; no preamble."
 TASK_CONFIG: Dict[str, Dict[str, Any]] = {
     "factual": {
         "system_prompt": f"{_BASE} Explain clearly in under 120 words.",
-        "max_tokens": 160,
+        "max_tokens": 300,
         "tier": "strong",
     },
     "math": {
         "system_prompt": f"{_BASE} Brief steps, then 'Answer: <value>' on its own line.",
-        "max_tokens": 160,
+        "max_tokens": 400,
         "tier": "strong",
     },
     "sentiment": {
         "system_prompt": f"{_BASE} Label the sentiment positive, negative, or neutral, then give one short justification.",
-        "max_tokens": 64,
+        "max_tokens": 120,
         "tier": "cheap",
     },
     "summarization": {
         "system_prompt": f"{_BASE} Output only the summary; obey any stated length or format constraint.",
-        "max_tokens": 120,
+        "max_tokens": 220,
         "tier": "cheap",
     },
     "ner": {
         "system_prompt": f"{_BASE} List each entity as 'label: value', one per line; labels: person, organization, location, date.",
-        "max_tokens": 80,
+        "max_tokens": 260,
         "tier": "cheap",
     },
     "code_debug": {
         "system_prompt": f"{_BASE} Name the bug in one sentence, then give the corrected code in one fenced block.",
-        "max_tokens": 350,
+        "max_tokens": 520,
         "tier": "code",
     },
     "logic": {
         "system_prompt": f"{_BASE} Deduce in brief numbered steps checking every constraint, then 'Answer: <value>' on its own line.",
-        "max_tokens": 180,
+        "max_tokens": 420,
         "tier": "strong",
     },
     "code_gen": {
         "system_prompt": f"{_BASE} Output only the code in one fenced block, correct and self-contained.",
-        "max_tokens": 350,
+        "max_tokens": 520,
         "tier": "code",
     },
 }
@@ -258,16 +258,16 @@ def solve_prompt(prompt: str, api_key: str, base_url: str, allowed_models: List[
     if not prompt or not prompt.strip():
         return ""
 
-    # Step 1: Check zero-token deterministic local solver
+    # Step 1: Classify category first so we can format Tier 0 hits properly
+    category = classify_task(prompt)
+    cfg = TASK_CONFIG.get(category, TASK_CONFIG["factual"])
+
+    # Step 2: Check zero-token deterministic local solver
     import local_solvers
     local_ans = local_solvers.solve(prompt)
     if local_ans is not None:
         logger.info("Tier 0 Local Solver HIT: %s -> %s", prompt[:40], local_ans)
         return str(local_ans)
-
-    # Step 2: Classify into one of 8 judge-aligned categories
-    category = classify_task(prompt)
-    cfg = TASK_CONFIG.get(category, TASK_CONFIG["factual"])
 
     # Step 3: Pick appropriate model tier
     model = select_best_model(prompt, allowed_models, category)
@@ -280,17 +280,39 @@ def solve_prompt(prompt: str, api_key: str, base_url: str, allowed_models: List[
     from openai import OpenAI
     client = OpenAI(api_key=api_key, base_url=base_url)
 
+    _no_effort_models = set()
+
     def _call_api(target_model: str, max_toks: int) -> str:
-        resp = client.chat.completions.create(
-            model=target_model,
-            messages=[
-                {"role": "system", "content": cfg["system_prompt"]},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.0,
-            max_tokens=max_toks,
-        )
-        return resp.choices[0].message.content or ""
+        kwargs = {}
+        if target_model not in _no_effort_models:
+            kwargs["reasoning_effort"] = "none"
+
+        try:
+            resp = client.chat.completions.create(
+                model=target_model,
+                messages=[
+                    {"role": "system", "content": cfg["system_prompt"]},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.0,
+                max_tokens=max_toks,
+                **kwargs
+            )
+            return resp.choices[0].message.content or ""
+        except Exception as e:
+            if kwargs and "invalid_request_error" in str(e).lower():
+                _no_effort_models.add(target_model)
+                resp = client.chat.completions.create(
+                    model=target_model,
+                    messages=[
+                        {"role": "system", "content": cfg["system_prompt"]},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.0,
+                    max_tokens=max_toks,
+                )
+                return resp.choices[0].message.content or ""
+            raise
 
     raw_ans = ""
     try:

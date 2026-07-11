@@ -54,8 +54,8 @@ def test_model_scorer():
 
 def test_local_solvers():
     print("=== TESTING TIER 0 LOCAL SOLVERS ===")
-    assert local_solvers.solve("What is 144 / 12?") == "12"
-    assert local_solvers.solve("Calculate 15% of 240") == "36"
+    assert local_solvers.solve("What is 144 / 12?") == "Answer: 12"
+    assert local_solvers.solve("Calculate 15% of 240") == "Answer: 36"
     assert local_solvers.solve("Reverse the string \"hello\"") == "olleh"
     assert local_solvers.solve("What is the capital of France?") is None
     print("PASSED fail-closed deterministic solver checks.")

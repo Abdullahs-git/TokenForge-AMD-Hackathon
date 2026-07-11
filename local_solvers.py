@@ -163,11 +163,11 @@ def solve(prompt: str) -> Optional[str]:
     """
     math_ans = solve_math_expression(prompt)
     if math_ans is not None:
-        return math_ans
+        return f"Answer: {math_ans}"
 
     eq_ans = solve_linear_equation(prompt)
     if eq_ans is not None:
-        return eq_ans
+        return f"Answer: {eq_ans}"
 
     str_ans = solve_string_operation(prompt)
     if str_ans is not None:
