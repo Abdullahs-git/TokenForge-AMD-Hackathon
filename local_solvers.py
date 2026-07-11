@@ -88,6 +88,46 @@ def solve_math_expression(prompt: str) -> Optional[str]:
     return None
 
 
+def solve_linear_equation(prompt: str) -> Optional[str]:
+    """
+    Attempts to solve simple algebraic equations like 'Solve equation: 2*x + 5 = 15' locally via SymPy.
+    Returns None on ambiguity.
+    """
+    text = prompt.strip()
+    lower = text.lower()
+    prefix = None
+    for p in ("solve equation:", "solve equation", "solve:"):
+        if lower.startswith(p):
+            prefix = p
+            break
+    if not prefix:
+        return None
+
+    eq_str = text[len(prefix):].strip()
+    if "=" not in eq_str:
+        return None
+
+    lhs_str, rhs_str = eq_str.split("=", 1)
+    try:
+        import sympy
+        # Find single alphabetical variable
+        vars_found = set(re.findall(r"[a-zA-Z]", eq_str))
+        if len(vars_found) != 1:
+            return None
+        var_name = vars_found.pop()
+        sym = sympy.Symbol(var_name)
+
+        lhs = sympy.sympify(lhs_str)
+        rhs = sympy.sympify(rhs_str)
+        sols = sympy.solve(lhs - rhs, sym)
+        if len(sols) == 1 and sols[0].is_real:
+            return _format_number(float(sols[0]))
+    except Exception:
+        pass
+
+    return None
+
+
 def solve_string_operation(prompt: str) -> Optional[str]:
     """
     Attempts to evaluate strictly unambiguous string manipulation tasks.
@@ -124,6 +164,10 @@ def solve(prompt: str) -> Optional[str]:
     math_ans = solve_math_expression(prompt)
     if math_ans is not None:
         return math_ans
+
+    eq_ans = solve_linear_equation(prompt)
+    if eq_ans is not None:
+        return eq_ans
 
     str_ans = solve_string_operation(prompt)
     if str_ans is not None:
