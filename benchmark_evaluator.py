@@ -57,7 +57,7 @@ def run_benchmark():
             status = "[OK - 0 TOKENS]"
         else:
             category = router.classify_task(prompt)
-            cfg = router.TASK_CONFIG.get(category, router.TASK_CONFIG["general"])
+            cfg = router.TASK_CONFIG.get(category, router.TASK_CONFIG.get("factual", {}))
             solver_tier = "Tier 1 (SOTA)"
             # System prompt tokens + estimated concise output
             sys_tokens = estimate_tokens(cfg["system_prompt"])
