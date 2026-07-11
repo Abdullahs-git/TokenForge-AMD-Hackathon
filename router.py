@@ -1,10 +1,10 @@
 """
-TokenForge — 8-Category Judge-Aligned Hybrid Routing Engine
-Combines:
-1. Exact 100% accuracy strategy from Judge-Aligned Reference (8 categories, exact judge prompts)
-2. Ultra-Lean Token Optimization (Tier 0 local solvers + tight token ceilings 1000-1500 target)
-3. Dynamic Model Tiering (cheap / strong / code models)
-4. Fallback safety net & output sanitization
+TokenForge — AMD Judge-Aligned Hybrid Routing Engine
+Aligned with the Official AMD Hackathon Judging FAQ & Public Validation Examples:
+- Strictly obeys sentence/word/bullet counts for Summarization
+- Acknowledges both positive & negative aspects for Sentiment Classification
+- Accurately captures multi-part answers for Math & Factual Knowledge
+- Exhaustively extracts entities for NER
 """
 
 import re
@@ -29,54 +29,53 @@ _FLUFF_SUFFIXES = [
 ]
 
 # ---------------------------------------------------------------------------
-# 1. Exact Judge-Aligned 8-Category System Prompts & Token Ceilings
+# 1. Exact AMD Judge-Aligned System Prompts & Token Ceilings
 # ---------------------------------------------------------------------------
 _BASE = "English only. Be concise; no preamble."
 
 TASK_CONFIG: Dict[str, Dict[str, Any]] = {
     "factual": {
-        "system_prompt": f"{_BASE} Explain clearly in under 120 words.",
+        "system_prompt": f"{_BASE} Explain clearly and accurately, directly addressing all parts of the prompt.",
         "max_tokens": 300,
         "tier": "strong",
     },
     "math": {
-        "system_prompt": f"{_BASE} Brief steps, then 'Answer: <value>' on its own line.",
+        "system_prompt": f"{_BASE} Provide clear step-by-step calculations and explicitly state all required answers accurately.",
         "max_tokens": 400,
         "tier": "strong",
     },
     "sentiment": {
-        "system_prompt": f"{_BASE} Label the sentiment positive, negative, or neutral, then give one short justification.",
-        "max_tokens": 120,
+        "system_prompt": f"{_BASE} State the sentiment label, then give a one-sentence justification acknowledging all key aspects (both positive and negative elements if present).",
+        "max_tokens": 140,
         "tier": "cheap",
     },
     "summarization": {
-        "system_prompt": f"{_BASE} Output only the summary; obey any stated length or format constraint.",
-        "max_tokens": 220,
+        "system_prompt": f"{_BASE} Output only the summary. Strictly obey all sentence count, bullet point count, and word-limit constraints stated in the prompt.",
+        "max_tokens": 240,
         "tier": "cheap",
     },
     "ner": {
-        "system_prompt": f"{_BASE} List each entity as 'label: value', one per line; labels: person, organization, location, date.",
+        "system_prompt": f"{_BASE} Extract all named entities accurately and list each on its own line as 'LABEL: Entity Name'.",
         "max_tokens": 260,
         "tier": "cheap",
     },
     "code_debug": {
-        "system_prompt": f"{_BASE} Name the bug in one sentence, then give the corrected code in one fenced block.",
+        "system_prompt": f"{_BASE} Name the bug concisely, then provide the corrected code in a single self-contained fenced block.",
         "max_tokens": 520,
         "tier": "code",
     },
     "logic": {
-        "system_prompt": f"{_BASE} Deduce in brief numbered steps checking every constraint, then 'Answer: <value>' on its own line.",
+        "system_prompt": f"{_BASE} Deduce step-by-step verifying every constraint, then state the final answer clearly.",
         "max_tokens": 420,
         "tier": "strong",
     },
     "code_gen": {
-        "system_prompt": f"{_BASE} Output only the code in one fenced block, correct and self-contained.",
+        "system_prompt": f"{_BASE} Output only the complete, correct, self-contained code in a single fenced block.",
         "max_tokens": 520,
         "tier": "code",
     },
 }
 
-# Backward compatibility mapping for general/classification/short_fact
 _BACKWARD_MAP = {
     "general": "factual",
     "short_fact": "factual",
@@ -85,7 +84,7 @@ _BACKWARD_MAP = {
 }
 
 # ---------------------------------------------------------------------------
-# 2. Exact Judge-Aligned 8-Category Regex Classifier
+# 2. 8-Category Regex Classifier
 # ---------------------------------------------------------------------------
 _CLASSIFIER_PATTERNS: Dict[str, List[str]] = {
     "code_debug": [
@@ -98,237 +97,207 @@ _CLASSIFIER_PATTERNS: Dict[str, List[str]] = {
     "code_gen": [
         r"\b(write|create|implement|build|generate|produce|give me)\b.*"
         r"\b(function|method|class|program|script|routine)\b",
-        r"\bfunction (that|to)\b", r"\bcode that\b",
-        r"\bwrite (a|an|some) code\b", r"\bimplement (a|an|the)\b",
-    ],
-    "sentiment": [
-        r"\bsentiment\b", r"positive or negative", r"positive, negative",
-        r"classify the (tone|emotion|sentiment|mood)",
-        r"(emotional )?tone of (this|the|that)",
-        r"\b(positive|negative|neutral)\b.*\breview\b",
-        r"how (positive|negative) ", r"is this (review|tweet|comment)\b",
-    ],
-    "ner": [
-        r"named entit", r"\bner\b",
-        r"extract (all )?(the )?(entit|name|person|people|organi|location|date)",
-        r"(list|identify|find|pull out) (all )?(the )?"
-        r"(people|persons?|organi[sz]ations?|locations?|dates?|entit)",
-        r"(person|organization|location|date)\s*[:=]",
-    ],
-    "summarization": [
-        r"summari[sz]e", r"\bsummary\b", r"\btl;?dr\b", r"\bcondense\b",
-        r"\bshorten\b", r"in (one|a single|two|three|\d+) (sentences?|words?|lines?)",
-        r"main (idea|point|takeaway)", r"\bthe gist\b", r"key points",
-        r"boil .* down",
-    ],
-    "logic": [
-        r"\bpuzzle\b", r"who (is|owns|sits|lives|has|drinks|likes)\b",
-        r"if and only if", r"exactly one", r"at least one",
-        r"the following (clues|facts|statements|conditions)",
-        r"each (person|house|box|day|one) .*(different|exactly|only|one)",
-        r"\bdeduc(e|tive|tion)\b", r"logically (follows?|true)",
-        r"(definitely|necessarily) (true|follows)",
-        r"knights? and knaves", r"truth[- ]?teller", r"\bliar\b",
+        r"```(python|js|javascript|java|cpp|c|go|rust|ts|typescript|sql)",
+        r"def \w+\(", r"class \w+[:\(]",
     ],
     "math": [
-        r"\bcalculate\b", r"\bcompute\b", r"how (much|many)\b", r"percent",
-        r"\d+\s*%", r"\bsum of\b", r"\baverage\b", r"solve for\b",
-        r"\d+\s*[+\-*/x×÷]\s*\d+", r"total (cost|price|amount|distance)",
-        r"\b(interest|discount|ratio|profit)\b",
-        r"find the (largest|smallest|value|angle|area|sum|total|average)",
-        r"what is \d",
+        r"\b(calculate|compute|solve|equation|formula|percent(age)?|integral|derivative|algebra|arithmetic)\b",
+        r"[\d]+\s*[\+\-\*\/\^]\s*[\d]+",
+        r"\bhow many\b.*\b(units|cookies|dollars|cups|remain|cost)\b",
+        r"\b(cost|price|total cost|recipe|stock|restock)\b",
     ],
-    "factual": [
-        r"what (is|are|was|were)\b", r"who (is|was|were)\b",
-        r"when (did|was|is)\b", r"where (is|was|are)\b",
-        r"why (is|do|does|are)\b", r"how (do|does|can)\b",
-        r"\bexplain\b", r"\bdefine\b", r"\bdescribe\b", r"what does .* mean",
+    "sentiment": [
+        r"\b(sentiment|classify.*sentiment|positive.*negative|review|tweet|customer review)\b",
+        r"\bclassify the sentiment\b",
+    ],
+    "ner": [
+        r"\b(named entit(y|ies)|extract.*entit(y|ies)|NER|PERSON|ORGANIZATION|LOCATION|DATE)\b",
+        r"extract all named entities",
+    ],
+    "summarization": [
+        r"\b(summarize|summarise|summary|tl;dr|in exactly \d+ (sentences|bullet points))\b",
+        r"bullet points?, each no longer than",
+    ],
+    "logic": [
+        r"\b(deduce|logical|puzzle|riddle|syllogism|statement.*true|infer|constraint)\b",
     ],
 }
-
-_PRIORITY_ORDER = [
-    "code_debug", "code_gen", "sentiment", "ner",
-    "summarization", "logic", "math", "factual",
-]
-
-_COMPILED_PATTERNS = {
-    cat: [re.compile(p, re.IGNORECASE) for p in pats]
-    for cat, pats in _CLASSIFIER_PATTERNS.items()
-}
-
-_CODE_FENCE = re.compile(r"```")
-_CODE_HINT = re.compile(
-    r"\b(def |class |return |import |#include|public |void |printf|"
-    r"console\.log|System\.out)|=>|;\s*$",
-    re.MULTILINE,
-)
 
 
 def classify_task(prompt: str) -> str:
-    """Classify the prompt into one of the 8 judge-aligned categories."""
-    text = prompt or ""
-    for cat in _PRIORITY_ORDER:
-        if any(rx.search(text) for rx in _COMPILED_PATTERNS[cat]):
-            return cat
-    if _CODE_FENCE.search(text) or _CODE_HINT.search(text):
-        return "code_debug"
+    """Classify prompt into one of the 8 Judge-Aligned categories."""
+    p_lower = prompt.lower()
+
+    for category, patterns in _CLASSIFIER_PATTERNS.items():
+        for pat in patterns:
+            if re.search(pat, p_lower):
+                return category
+
     return "factual"
 
 
-detect_category = classify_task
-
-
 # ---------------------------------------------------------------------------
-# 3. Dynamic Model Tiering (cheap / strong / code)
+# 3. Dynamic Model Selection
 # ---------------------------------------------------------------------------
-_MOE_PAT = re.compile(r"(\d+)\s*x\s*(\d+)\s*b\b")
-_DENSE_PAT = re.compile(r"(\d+)\s*b\b")
-_CODE_MODEL_PAT = re.compile(r"\bcode|coder|-code\b")
-
-
-def _total_params(model_id: str) -> int:
-    mid = model_id.lower()
-    if "deepseek" in mid:
-        return 999
-    moe = _MOE_PAT.search(mid)
-    if moe:
-        return int(moe.group(1)) * int(moe.group(2))
-    sizes = [int(m.group(1)) for m in _DENSE_PAT.finditer(mid)]
-    return max(sizes) if sizes else 100
-
-
-def resolve_model_tiers(allowed_models: List[str]) -> Dict[str, str]:
-    if not allowed_models:
-        default = "accounts/fireworks/models/llama-v3p1-70b-instruct"
-        return {"cheap": default, "strong": default, "code": default}
-
-    general = [m for m in allowed_models if not _CODE_MODEL_PAT.search(m.lower())] or allowed_models
-    strong = max(general, key=_total_params)
-    code_models = [m for m in allowed_models if _CODE_MODEL_PAT.search(m.lower())]
-    code = max(code_models, key=_total_params) if code_models else strong
-    cheap = min(allowed_models, key=_total_params)
-    return {"cheap": cheap, "strong": strong, "code": code}
-
-
-def select_best_model(prompt: str, allowed_models: List[str], task_type: Optional[str] = None) -> str:
-    """Select the appropriate model tier (cheap / strong / code) for the task."""
+def select_model(prompt: str, category: str, allowed_models: List[str]) -> str:
+    """Select the optimal model from ALLOWED_MODELS based on category tier."""
     if not allowed_models:
         return "accounts/fireworks/models/llama-v3p1-70b-instruct"
 
-    if task_type is None:
-        task_type = classify_task(prompt)
+    tier = TASK_CONFIG.get(category, TASK_CONFIG["factual"])["tier"]
 
-    cfg = TASK_CONFIG.get(task_type, TASK_CONFIG["factual"])
-    target_tier = cfg.get("tier", "strong")
-    tiers = resolve_model_tiers(allowed_models)
-    return tiers.get(target_tier, tiers["strong"])
+    if tier == "code":
+        priorities = ["kimi-k2.7-code", "qwen2.5-coder", "minimax-m3", "gemma-4-31b-it"]
+    elif tier == "cheap":
+        priorities = ["llama-v3p1-8b-instruct", "gemma-4-9b-it", "minimax-m3"]
+    else:
+        priorities = ["minimax-m3", "minimax", "llama-v3p1-70b-instruct", "gemma-4-31b-it"]
+
+    for pref in priorities:
+        for m in allowed_models:
+            if pref in m.lower():
+                return m
+
+    return allowed_models[0]
 
 
 # ---------------------------------------------------------------------------
-# 4. Output Sanitization & CoT Stripping
+# 4. Tier 0 Local Deterministic Solvers ($0 API cost, 0 tokens)
 # ---------------------------------------------------------------------------
-def sanitize_output(raw_text: str, task_type: Optional[str] = None) -> str:
-    """Strip chain-of-thought blocks and conversational wrappers."""
+def solve_equation(prompt: str) -> Optional[str]:
+    """Tier 0 solver for simple linear equations like '2*x + 5 = 15'."""
+    match = re.search(
+        r"(?:solve\s+(?:the\s+)?(?:equation\s+)?)(?:for\s+[a-z]\s*:\s*)?([0-9]+)\s*\*\s*([a-z])\s*([\+\-])\s*([0-9]+)\s*=\s*([0-9]+)",
+        prompt,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    try:
+        a = int(match.group(1))
+        var = match.group(2)
+        op = match.group(3)
+        b = int(match.group(4))
+        c = int(match.group(5))
+
+        if op == "+":
+            rhs = c - b
+        else:
+            rhs = c + b
+
+        if rhs % a == 0:
+            val = rhs // a
+            return f"Answer: {val}"
+    except Exception:
+        pass
+
+    return None
+
+
+def solve_arithmetic(prompt: str) -> Optional[str]:
+    """Tier 0 solver for pure arithmetic expressions like 'Calculate 144 / 12'."""
+    text = prompt.strip()
+    match = re.match(
+        r"^(?:what is|calculate|compute|evaluate)\s+([0-9\s\+\-\*\/\(\)\.]+)\??$",
+        text,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    expr = match.group(1).strip()
+    if not re.match(r"^[0-9\s\+\-\*\/\(\)\.]+$", expr):
+        return None
+
+    try:
+        val = eval(expr, {"__builtins__": {}}, {})
+        if isinstance(val, (int, float)):
+            if val == int(val):
+                return f"Answer: {int(val)}"
+            return f"Answer: {val:.4g}"
+    except Exception:
+        pass
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# 5. Output Sanitization
+# ---------------------------------------------------------------------------
+def sanitize_output(raw_text: str) -> str:
+    """Clean internal CoT reasoning traces and conversational fluff."""
     if not raw_text:
         return ""
 
-    cleaned = _THINK_RE.sub("", raw_text).strip()
+    text = _THINK_RE.sub("", raw_text).strip()
 
-    for pattern in _FLUFF_PREFIXES:
-        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+    for pat in _FLUFF_PREFIXES:
+        text = re.sub(pat, "", text, flags=re.IGNORECASE).strip()
 
-    for pattern in _FLUFF_SUFFIXES:
-        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+    for pat in _FLUFF_SUFFIXES:
+        text = re.sub(pat, "", text, flags=re.IGNORECASE).strip()
 
-    return cleaned
+    return text
 
 
 # ---------------------------------------------------------------------------
-# 5. Pipeline Orchestration & Fallback Execution
+# 6. Pipeline Orchestration
 # ---------------------------------------------------------------------------
 def solve_prompt(prompt: str, api_key: str, base_url: str, allowed_models: List[str]) -> str:
-    """
-    Execute task prompt through the full hybrid routing pipeline:
-    1. Tier 0 Local Deterministic Solver (0 API tokens)
-    2. 8-Category Judge-Aligned Classification
-    3. Dynamic Model Tiering (cheap / strong / code)
-    4. Strict Judge System Prompts + Tight max_tokens budget
-    5. Fallback Safety Net & Output Sanitization
-    """
+    """Execute complete Judge-Aligned routing and evaluation pipeline."""
     if not prompt or not prompt.strip():
-        return ""
+        return "Unable to determine answer."
 
-    # Step 1: Classify category first so we can format Tier 0 hits properly
+    # --- Tier 0 Deterministic Solvers ---
+    eq_res = solve_equation(prompt)
+    if eq_res is not None:
+        logger.info("Tier 0 Local Solver HIT: %s -> %s", prompt[:35], eq_res)
+        return eq_res
+
+    arith_res = solve_arithmetic(prompt)
+    if arith_res is not None:
+        logger.info("Tier 0 Local Solver HIT: %s -> %s", prompt[:35], arith_res)
+        return arith_res
+
+    # --- Tier 1 SOTA Cloud Model Execution ---
     category = classify_task(prompt)
     cfg = TASK_CONFIG.get(category, TASK_CONFIG["factual"])
 
-    # Step 2: Check zero-token deterministic local solver
-    import local_solvers
-    local_ans = local_solvers.solve(prompt)
-    if local_ans is not None:
-        logger.info("Tier 0 Local Solver HIT: %s -> %s", prompt[:40], local_ans)
-        return str(local_ans)
+    model = select_model(prompt, category, allowed_models)
+    logger.info("Task Category: [%s] -> Routing to model: %s", category.upper(), model)
 
-    # Step 3: Pick appropriate model tier
-    model = select_best_model(prompt, allowed_models, category)
-
-    if not api_key or not base_url:
+    if not api_key or not base_url or not allowed_models:
         logger.warning("API credentials missing during solve_prompt execution.")
-        return "Unable to determine answer."
+        return "Unable to generate answer."
 
-    # Step 4: Execute remote API call with judge-aligned system prompt
     from openai import OpenAI
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    import time
 
-    _no_effort_models = set()
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0, max_retries=1)
 
-    def _call_api(target_model: str, max_toks: int) -> str:
-        kwargs = {}
-        if target_model not in _no_effort_models:
-            kwargs["reasoning_effort"] = "none"
+    messages = [
+        {"role": "system", "content": cfg["system_prompt"]},
+        {"role": "user", "content": prompt},
+    ]
 
+    delay = 1.0
+    for attempt in range(3):
         try:
-            resp = client.chat.completions.create(
-                model=target_model,
-                messages=[
-                    {"role": "system", "content": cfg["system_prompt"]},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.0,
-                max_tokens=max_toks,
-                **kwargs
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=cfg["max_tokens"],
             )
-            return resp.choices[0].message.content or ""
+            raw_text = response.choices[0].message.content or ""
+            cleaned = sanitize_output(raw_text)
+            if cleaned:
+                return cleaned
         except Exception as e:
-            if kwargs and "invalid_request_error" in str(e).lower():
-                _no_effort_models.add(target_model)
-                resp = client.chat.completions.create(
-                    model=target_model,
-                    messages=[
-                        {"role": "system", "content": cfg["system_prompt"]},
-                        {"role": "user", "content": prompt},
-                    ],
-                    temperature=0.0,
-                    max_tokens=max_toks,
-                )
-                return resp.choices[0].message.content or ""
-            raise
+            logger.warning("API attempt %d failed for model %s: %s", attempt + 1, model, e)
+            if attempt < 2:
+                time.sleep(delay)
+                delay *= 2
 
-    raw_ans = ""
-    try:
-        raw_ans = _call_api(model, cfg["max_tokens"])
-    except Exception as e:
-        logger.warning("Primary API call failed for model %s: %s", model, e)
-
-    # Step 5: Fallback safety net (retry with strong model if primary failed or returned blank)
-    if not raw_ans or not raw_ans.strip():
-        tiers = resolve_model_tiers(allowed_models)
-        strong_model = tiers.get("strong", model)
-        if strong_model != model or not raw_ans:
-            logger.info("Triggering Fallback Safety Net to strong model: %s", strong_model)
-            try:
-                raw_ans = _call_api(strong_model, max(200, cfg["max_tokens"]))
-            except Exception as e:
-                logger.error("Fallback API call failed: %s", e)
-
-    return sanitize_output(raw_ans, category)
+    return "Unable to generate answer."
