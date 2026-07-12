@@ -233,8 +233,6 @@ def solve_prompt(prompt: str, api_key: str, base_url: str, allowed_models: List[
     # --- Tier 0 Deterministic Solvers (0 tokens, 100% accurate) ---
     local_ans = local_solvers.solve(prompt)
     if local_ans is not None:
-        if local_ans.startswith("Answer: "):
-            local_ans = local_ans[len("Answer: "):]
         logger.info("Tier 0 Local Solver HIT: %s -> %s", prompt[:35], local_ans)
         return local_ans
 
