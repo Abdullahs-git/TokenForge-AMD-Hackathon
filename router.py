@@ -154,6 +154,8 @@ def select_model(prompt: str, category: str, allowed_models: List[str]) -> str:
                 size = 70.0
             elif '32b' in name or '32' in name or 'medium' in name:
                 size = 32.0
+            elif 'minimax' in name or 'm3' in name:
+                size = 20.0
             elif '8b' in name or '8' in name or 'small' in name or 'mini' in name:
                 size = 8.0
             else:
