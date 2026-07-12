@@ -9,6 +9,7 @@ import sys
 import json
 import time
 import logging
+import pathlib
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List
 import router
@@ -19,6 +20,17 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("tokenforge.main")
+
+
+def load_env() -> None:
+    """Load local .env file if present."""
+    env_file = pathlib.Path(__file__).resolve().parent / ".env"
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if "=" in line and not line.startswith("#"):
+                key, val = line.split("=", 1)
+                os.environ.setdefault(key.strip(), val.strip())
 
 
 def process_task(task: Dict[str, Any], api_key: str, base_url: str, allowed_models: List[str]) -> Dict[str, str]:
@@ -45,11 +57,14 @@ def main() -> None:
     start_time = time.monotonic()
     logger.info("TokenForge starting evaluation pipeline...")
 
-    # Load environment configuration
+    load_env()
+
     api_key = os.environ.get("FIREWORKS_API_KEY", "")
-    base_url = os.environ.get("FIREWORKS_BASE_URL", "")
+    base_url = os.environ.get("FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1")
     allowed_models_str = os.environ.get("ALLOWED_MODELS", "")
     allowed_models = [m.strip() for m in allowed_models_str.split(",") if m.strip()]
+    if not allowed_models:
+        allowed_models = router.DEFAULT_MODELS
 
     # Paths (container standard /input/tasks.json vs local development)
     input_path = "/input/tasks.json" if os.path.exists("/input/tasks.json") else "input/tasks.json"
@@ -66,7 +81,6 @@ def main() -> None:
         logger.error("Failed to read input JSON %s: %s", input_path, e)
         sys.exit(1)
 
-    # Unwrap dict containers e.g. {"tasks": [...]} or {"results": [...]}
     if isinstance(tasks, dict):
         for key in ("tasks", "data", "results", "items"):
             if key in tasks and isinstance(tasks[key], list):
@@ -93,7 +107,6 @@ def main() -> None:
             except Exception as e:
                 logger.error("Worker thread exception: %s", e)
 
-    # Write output JSON safely
     try:
         out_dir = os.path.dirname(output_path)
         if out_dir:

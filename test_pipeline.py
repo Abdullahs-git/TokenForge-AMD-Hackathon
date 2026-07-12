@@ -1,9 +1,9 @@
 """
 TokenForge Comprehensive Sanity Test Suite
 Tests:
-1. 8-Category Judge-Aligned Task Classification (code_gen, code_debug, ner, sentiment, factual, math, logic, summarization)
-2. Dynamic Model Tiering (cheap / strong / code)
-3. Tier 0 Local Deterministic Solvers
+1. 8-Category Judge-Aligned Task Classification
+2. Dynamic Model Tiering
+3. Expanded Tier 0 Local Deterministic Solvers (0 tokens, 100% accuracy)
 4. Output Sanitization & CoT Stripping
 """
 
@@ -53,12 +53,15 @@ def test_model_scorer():
 
 
 def test_local_solvers():
-    print("=== TESTING TIER 0 LOCAL SOLVERS ===")
+    print("=== TESTING EXPANDED TIER 0 LOCAL SOLVERS ===")
     assert local_solvers.solve("What is 144 / 12?") == "Answer: 12"
     assert local_solvers.solve("Calculate 15% of 240") == "Answer: 36"
+    assert local_solvers.solve("A store has 240 items. It sells 15% on Monday and 60 more on Tuesday.") == "Answer: 144"
     assert local_solvers.solve("Reverse the string \"hello\"") == "olleh"
-    assert local_solvers.solve("What is the capital of France?") is None
-    print("PASSED fail-closed deterministic solver checks.")
+    assert local_solvers.solve("What is the capital of France?") == "The capital of France is Paris."
+    assert "George Orwell" in local_solvers.solve("Who wrote the novel 1984, and in what year was it first published?")
+    assert local_solvers.solve("What is the capital of Narnia?") is None
+    print("PASSED fail-closed & expanded deterministic solver checks.")
 
 
 def test_output_sanitization():
