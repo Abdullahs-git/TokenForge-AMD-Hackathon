@@ -229,33 +229,55 @@ def solve_prompt(prompt: str, api_key: str, base_url: str, allowed_models: List[
         logger.warning("API credentials missing during solve_prompt execution.")
         return "Unable to generate answer."
 
-    from openai import OpenAI
+    import json
     import time
+    import urllib.request
+    import urllib.error
 
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0, max_retries=1)
+    def _get_endpoint_candidates(base: str) -> List[str]:
+        b = base.rstrip("/")
+        if not b:
+            return []
+        if b.endswith("/chat/completions"):
+            return [b]
+        cands = [f"{b}/chat/completions"]
+        if not b.endswith("/v1"):
+            cands.append(f"{b}/v1/chat/completions")
+        return cands
 
     messages = [
         {"role": "system", "content": cfg["system_prompt"]},
         {"role": "user", "content": prompt},
     ]
 
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.1,
+        "max_tokens": cfg["max_tokens"],
+    }
+    data_bytes = json.dumps(payload).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    endpoints = _get_endpoint_candidates(base_url)
     delay = 1.0
+
     for attempt in range(3):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.1,
-                max_tokens=cfg["max_tokens"],
-            )
-            raw_text = response.choices[0].message.content or ""
-            cleaned = sanitize_output(raw_text)
-            if cleaned:
-                return cleaned
-        except Exception as e:
-            logger.warning("API attempt %d failed for model %s: %s", attempt + 1, model, e)
-            if attempt < 2:
-                time.sleep(delay)
-                delay *= 2
+        for url in endpoints:
+            try:
+                req = urllib.request.Request(url, data=data_bytes, headers=headers)
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    resp_json = json.loads(resp.read().decode("utf-8"))
+                    raw_text = resp_json["choices"][0]["message"]["content"] or ""
+                    cleaned = sanitize_output(raw_text)
+                    if cleaned:
+                        return cleaned
+            except Exception as e:
+                logger.warning("Attempt %d failed on URL %s: %s", attempt + 1, url, e)
+        time.sleep(delay)
+        delay *= 2
 
     return "Unable to generate answer."
