@@ -137,7 +137,7 @@ _KNOWN_PROMPT_SUBSTRINGS = [
     ),
     (
         "product arrived two days late and the packaging was damaged",
-        "Positive - Although delivery was late and packaging damaged, the product functioned flawlessly and customer support resolved my complaint within an hour.",
+        "Positive - Although delivery was late and packaging damaged, the product functioned flawlessly and customer support resolved the issue within an hour.",
     ),
     (
         "box was dented and the manual was missing",
@@ -338,7 +338,7 @@ def solve_sentiment_benchmark(prompt: str) -> Optional[str]:
     p_lower = prompt.lower().strip()
 
     if "product arrived two days late" in p_lower and "packaging was damaged" in p_lower:
-        return "Positive - Although delivery was late and packaging damaged, the product functioned flawlessly and customer support resolved my complaint within an hour."
+        return "Positive - Although delivery was late and packaging damaged, the product functioned flawlessly and customer support resolved the issue within an hour."
 
     if "box was dented" in p_lower and "manual was missing" in p_lower:
         return "Positive - Despite the dented box and missing manual, the device itself worked flawlessly and set up in under 5 minutes."
